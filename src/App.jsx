@@ -296,12 +296,18 @@ export default function App() {
   };
   const stripOuter = () => { const m = newPrompt.match(/^[\{\[]([\s\S]*?)[\}\]]$/); if (m) setNewPrompt(m[1]); };
 
-  /* ── output ── */
-  const buildOut = (neg) => Object.entries(sels).map(([id, s]) => {
-    const p = prompts.find(x => x.id === id);
-    if (!p || !!s.neg !== neg) return null;
-    return wrap(p.prompt, s.w);
-  }).filter(Boolean).join(", ");
+  /* ── output (sorted by category order, stable within a cat) ── */
+  const sortedSels = useMemo(() => {
+    const catOrder = new Map(sortedCats.map((c, i) => [c.id, i]));
+    return Object.entries(sels)
+      .map(([id, s]) => ({ id, s, p: prompts.find(x => x.id === id) }))
+      .filter(({ p }) => p)
+      .sort((a, b) => (catOrder.get(a.p.catId) ?? 999) - (catOrder.get(b.p.catId) ?? 999));
+  }, [sels, prompts, sortedCats]);
+  const buildOut = (neg) => sortedSels
+    .filter(({ s }) => !!s.neg === neg)
+    .map(({ p, s }) => wrap(p.prompt, s.w))
+    .join(", ");
   const posOut = buildOut(false);
   const negOut = buildOut(true);
   const selCount = Object.keys(sels).length;
@@ -836,19 +842,24 @@ export default function App() {
             </div>
             {selCount>0&&(
               <>
-                <div style={{display:"flex",flexWrap:"wrap",gap:6,maxHeight:64,overflowY:"auto",marginBottom:6}}>
-                  {Object.entries(sels).map(([id,s])=>{
-                    const p=prompts.find(x=>x.id===id);if(!p)return null;
+                <div style={{display:"flex",flexWrap:"wrap",gap:6,maxHeight:80,overflowY:"auto",marginBottom:6}}>
+                  {sortedSels.map(({id,s,p},i)=>{
+                    const prev=sortedSels[i-1];
+                    const showSep=i>0&&prev&&prev.p.catId!==p.catId;
+                    const cat=sortedCats.find(c=>c.id===p.catId);
                     return(
-                      <div key={id} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"5px 8px",borderRadius:6,fontSize:12,
-                        background:s.neg?"var(--negBg)":"var(--posBg)",border:`1px solid ${s.neg?"var(--negBdr)":"var(--posBdr)"}`,color:s.neg?"var(--neg)":"var(--pos)"}}>
-                        <button onClick={()=>setWeight(id,-1)} title="弱める" style={{background:"none",color:"inherit",fontSize:16,padding:"0 3px",lineHeight:1}}>−</button>
-                        <span className="mono" style={{fontSize:11,minWidth:16,textAlign:"center"}}>{s.w>0?"+"+s.w:s.w}</span>
-                        <button onClick={()=>setWeight(id,1)} title="強める" style={{background:"none",color:"inherit",fontSize:16,padding:"0 3px",lineHeight:1}}>+</button>
-                        <button onClick={()=>flipSel(id)} title="ポジ／ネガを切替" style={{background:"none",color:"inherit",fontSize:12,padding:"0 4px",lineHeight:1,fontWeight:700}}>{s.neg?"⊖":"⊕"}</button>
-                        <span style={{margin:"0 2px"}}>{p.label}</span>
-                        <button onClick={()=>removeSel(id)} title="削除" style={{background:"none",color:"inherit",fontSize:16,padding:"0 3px",opacity:.5,lineHeight:1}}>×</button>
-                      </div>
+                      <span key={id} style={{display:"inline-flex",alignItems:"center",gap:4}}>
+                        {showSep&&<span style={{width:1,alignSelf:"stretch",background:"var(--bdr)",margin:"0 2px"}}/>}
+                        <div style={{display:"inline-flex",alignItems:"center",gap:4,padding:"5px 8px",borderRadius:6,fontSize:12,
+                          background:s.neg?"var(--negBg)":"var(--posBg)",border:`1px solid ${s.neg?"var(--negBdr)":"var(--posBdr)"}`,color:s.neg?"var(--neg)":"var(--pos)"}}>
+                          <button onClick={()=>setWeight(id,-1)} title="弱める" style={{background:"none",color:"inherit",fontSize:16,padding:"0 3px",lineHeight:1}}>−</button>
+                          <span className="mono" style={{fontSize:11,minWidth:16,textAlign:"center"}}>{s.w>0?"+"+s.w:s.w}</span>
+                          <button onClick={()=>setWeight(id,1)} title="強める" style={{background:"none",color:"inherit",fontSize:16,padding:"0 3px",lineHeight:1}}>+</button>
+                          <button onClick={()=>flipSel(id)} title="ポジ／ネガを切替" style={{background:"none",color:"inherit",fontSize:12,padding:"0 4px",lineHeight:1,fontWeight:700}}>{s.neg?"⊖":"⊕"}</button>
+                          <span style={{margin:"0 2px"}} title={cat?.name||""}>{p.label}</span>
+                          <button onClick={()=>removeSel(id)} title="削除" style={{background:"none",color:"inherit",fontSize:16,padding:"0 3px",opacity:.5,lineHeight:1}}>×</button>
+                        </div>
+                      </span>
                     );
                   })}
                 </div>
