@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import storage from "./storage";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -9,35 +9,39 @@ const now = () =>
   });
 
 const INIT_CATS = [
-  { id: "char", name: "キャラクター", order: 0 },
-  { id: "expr", name: "表情", order: 1 },
-  { id: "act", name: "行為", order: 2 },
-  { id: "outfit", name: "服装", order: 3 },
-  { id: "place", name: "場所", order: 4 },
-  { id: "comp", name: "構図", order: 5 },
-  { id: "light", name: "光・色調", order: 6 },
-  { id: "quality", name: "品質", order: 7 },
+  { id: "char", name: "キャラクター", order: 0, tags: [] },
+  { id: "expr", name: "表情", order: 1, tags: [] },
+  { id: "act", name: "行為", order: 2, tags: [] },
+  { id: "outfit", name: "服装", order: 3, tags: [] },
+  { id: "place", name: "場所", order: 4, tags: [] },
+  { id: "comp", name: "構図", order: 5, tags: [] },
+  { id: "light", name: "光・色調", order: 6, tags: [] },
+  { id: "quality", name: "品質", order: 7, tags: [] },
 ];
 
 const INIT_PROMPTS = [
-  { id: "p1", catId: "char", prompt: "1girl", label: "女の子", neg: false },
-  { id: "p2", catId: "char", prompt: "1boy", label: "男の子", neg: false },
-  { id: "p3", catId: "char", prompt: "blonde hair", label: "金髪", neg: false },
-  { id: "p4", catId: "expr", prompt: "smile", label: "笑顔", neg: false },
-  { id: "p5", catId: "expr", prompt: "crying", label: "泣き", neg: false },
-  { id: "p6", catId: "act", prompt: "standing", label: "立ち", neg: false },
-  { id: "p7", catId: "act", prompt: "jumping", label: "ジャンプ", neg: false },
-  { id: "p8", catId: "outfit", prompt: "school uniform", label: "制服", neg: false },
-  { id: "p9", catId: "outfit", prompt: "dress", label: "ドレス", neg: false },
-  { id: "p10", catId: "place", prompt: "classroom", label: "教室", neg: false },
-  { id: "p11", catId: "place", prompt: "forest", label: "森", neg: false },
-  { id: "p12", catId: "comp", prompt: "close-up", label: "アップ", neg: false },
-  { id: "p13", catId: "comp", prompt: "full body", label: "全身", neg: false },
-  { id: "p14", catId: "light", prompt: "dramatic lighting", label: "ドラマチック", neg: false },
-  { id: "p15", catId: "quality", prompt: "masterpiece", label: "傑作", neg: false },
-  { id: "p16", catId: "quality", prompt: "best quality", label: "最高品質", neg: false },
-  { id: "p17", catId: "quality", prompt: "lowres", label: "低解像度", neg: true },
-  { id: "p18", catId: "quality", prompt: "bad anatomy", label: "破綻", neg: true },
+  { id: "p1", catId: "char", prompt: "1girl", label: "女の子", tagIds: [] },
+  { id: "p2", catId: "char", prompt: "1boy", label: "男の子", tagIds: [] },
+  { id: "p3", catId: "char", prompt: "blonde hair", label: "金髪", tagIds: [] },
+  { id: "p4", catId: "expr", prompt: "smile", label: "笑顔", tagIds: [] },
+  { id: "p5", catId: "expr", prompt: "crying", label: "泣き", tagIds: [] },
+  { id: "p6", catId: "act", prompt: "standing", label: "立ち", tagIds: [] },
+  { id: "p7", catId: "act", prompt: "jumping", label: "ジャンプ", tagIds: [] },
+  { id: "p8", catId: "outfit", prompt: "school uniform", label: "制服", tagIds: [] },
+  { id: "p9", catId: "outfit", prompt: "dress", label: "ドレス", tagIds: [] },
+  { id: "p10", catId: "place", prompt: "classroom", label: "教室", tagIds: [] },
+  { id: "p11", catId: "place", prompt: "forest", label: "森", tagIds: [] },
+  { id: "p12", catId: "comp", prompt: "close-up", label: "アップ", tagIds: [] },
+  { id: "p13", catId: "comp", prompt: "full body", label: "全身", tagIds: [] },
+  { id: "p14", catId: "light", prompt: "dramatic lighting", label: "ドラマチック", tagIds: [] },
+  { id: "p15", catId: "quality", prompt: "masterpiece", label: "傑作", tagIds: [] },
+  { id: "p16", catId: "quality", prompt: "best quality", label: "最高品質", tagIds: [] },
+  { id: "p17", catId: "quality", prompt: "lowres", label: "低解像度", tagIds: [] },
+  { id: "p18", catId: "quality", prompt: "bad anatomy", label: "破綻", tagIds: [] },
+];
+
+const INIT_SAVED_CATS = [
+  { id: "default", name: "未分類", order: 0 },
 ];
 
 const wrap = (text, w) => {
@@ -47,8 +51,12 @@ const wrap = (text, w) => {
   return r;
 };
 
-const SK = "nai-pg-v2";
-const SK_SAVED = "nai-pg-saved-v2";
+const SK = "nai-pg-v3";
+const SK_SAVED = "nai-pg-saved-v3";
+const SK_OLD = "nai-pg-v2";
+const SK_SAVED_OLD = "nai-pg-saved-v2";
+
+const sortByOrder = (arr) => [...arr].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
 const Btn = ({ children, on, bg, color, border, small, disabled, style, ...rest }) => (
   <button disabled={disabled} onClick={on} style={{
@@ -63,73 +71,219 @@ const Btn = ({ children, on, bg, color, border, small, disabled, style, ...rest 
 );
 
 export default function App() {
+  /* ── core state ── */
   const [cats, setCats] = useState(INIT_CATS);
   const [prompts, setPrompts] = useState(INIT_PROMPTS);
-  const [sels, setSels] = useState({});
+  const [sels, setSels] = useState({}); // { [id]: { w, neg } }
+  const [savedCats, setSavedCats] = useState(INIT_SAVED_CATS);
   const [saved, setSaved] = useState([]);
   const [loaded, setLoaded] = useState(false);
 
+  /* ── ui state ── */
   const [tab, setTab] = useState("select");
   const [activeCat, setActiveCat] = useState("char");
   const [search, setSearch] = useState("");
-
+  const [tagFilter, setTagFilter] = useState([]);
   const [addMode, setAddMode] = useState("positive");
+
+  /* ── manage state ── */
+  const [manageCat, setManageCat] = useState("char");
   const [newPrompt, setNewPrompt] = useState("");
   const [newLabel, setNewLabel] = useState("");
-  const [manageCat, setManageCat] = useState("char");
+  const [newPromptTagIds, setNewPromptTagIds] = useState([]);
+  const [newPromptTagInput, setNewPromptTagInput] = useState("");
   const [editId, setEditId] = useState(null);
   const [editPrompt, setEditPrompt] = useState("");
   const [editLabel, setEditLabel] = useState("");
-
+  const [editTagIds, setEditTagIds] = useState([]);
+  const [editTagInput, setEditTagInput] = useState("");
   const [newCatName, setNewCatName] = useState("");
   const [renameCatId, setRenameCatId] = useState(null);
   const [renameCatName, setRenameCatName] = useState("");
+  const [newTagName, setNewTagName] = useState("");
+  const [renameTagId, setRenameTagId] = useState(null);
+  const [renameTagName, setRenameTagName] = useState("");
 
+  /* ── output state ── */
   const [saveName, setSaveName] = useState("");
+  const [saveCatId, setSaveCatId] = useState("default");
   const [expandedSaved, setExpandedSaved] = useState(null);
+  const [newSavedCatName, setNewSavedCatName] = useState("");
+  const [renameSavedCatId, setRenameSavedCatId] = useState(null);
+  const [renameSavedCatName, setRenameSavedCatName] = useState("");
 
   const [toast, setToast] = useState("");
   const promptRef = useRef(null);
 
   const flash = (msg) => { setToast(msg); setTimeout(() => setToast(""), 2200); };
 
-  /* ── persistence ── */
+  /* ── persistence + migration ── */
   useEffect(() => {
     (async () => {
-      try { const r = await storage.get(SK); if (r?.value) { const d = JSON.parse(r.value); if (d.cats?.length) setCats(d.cats); if (d.prompts) setPrompts(d.prompts); if (d.sels) setSels(d.sels); } } catch {}
-      try { const r2 = await storage.get(SK_SAVED); if (r2?.value) { const d2 = JSON.parse(r2.value); if (Array.isArray(d2)) setSaved(d2); } } catch {}
+      try {
+        const r = await storage.get(SK);
+        if (r?.value) {
+          const d = JSON.parse(r.value);
+          if (Array.isArray(d.cats) && d.cats.length) setCats(d.cats.map(c => ({ ...c, tags: c.tags || [] })));
+          if (Array.isArray(d.prompts)) setPrompts(d.prompts.map(p => ({ ...p, tagIds: p.tagIds || [] })));
+          if (d.sels && typeof d.sels === "object") setSels(d.sels);
+        } else {
+          // migrate from v2
+          const old = await storage.get(SK_OLD);
+          if (old?.value) {
+            const o = JSON.parse(old.value);
+            const oldCats = Array.isArray(o.cats) ? o.cats : [];
+            const oldPrompts = Array.isArray(o.prompts) ? o.prompts : [];
+            const newCats = oldCats.map(c => ({ ...c, tags: c.tags || [] }));
+            const newPrompts = oldPrompts.map(({ neg, ...rest }) => ({ ...rest, tagIds: rest.tagIds || [] }));
+            const newSels = {};
+            for (const [id, val] of Object.entries(o.sels || {})) {
+              if (val && typeof val === "object" && "w" in val) newSels[id] = val;
+              else {
+                const op = oldPrompts.find(p => p.id === id);
+                newSels[id] = { w: typeof val === "number" ? val : 0, neg: !!op?.neg };
+              }
+            }
+            if (newCats.length) setCats(newCats);
+            if (newPrompts.length) setPrompts(newPrompts);
+            setSels(newSels);
+          }
+        }
+      } catch {}
+      try {
+        const r2 = await storage.get(SK_SAVED);
+        if (r2?.value) {
+          const d2 = JSON.parse(r2.value);
+          if (Array.isArray(d2.savedCats) && d2.savedCats.length) setSavedCats(d2.savedCats);
+          if (Array.isArray(d2.saved)) setSaved(d2.saved.map(s => ({ ...s, savedCatId: s.savedCatId || "default" })));
+        } else {
+          const old2 = await storage.get(SK_SAVED_OLD);
+          if (old2?.value) {
+            const arr = JSON.parse(old2.value);
+            if (Array.isArray(arr)) setSaved(arr.map(s => ({ ...s, savedCatId: "default" })));
+          }
+        }
+      } catch {}
       setLoaded(true);
     })();
   }, []);
   useEffect(() => { if (!loaded) return; (async () => { try { await storage.set(SK, JSON.stringify({ cats, prompts, sels })); } catch {} })(); }, [cats, prompts, sels, loaded]);
-  useEffect(() => { if (!loaded) return; (async () => { try { await storage.set(SK_SAVED, JSON.stringify(saved)); } catch {} })(); }, [saved, loaded]);
+  useEffect(() => { if (!loaded) return; (async () => { try { await storage.set(SK_SAVED, JSON.stringify({ savedCats, saved })); } catch {} })(); }, [savedCats, saved, loaded]);
 
-  /* ── selection ── */
-  const toggleSel = (id) => setSels((p) => { const n = { ...p }; if (n[id] !== undefined) delete n[id]; else n[id] = 0; return n; });
-  const setWeight = (id, d) => setSels((p) => ({ ...p, [id]: Math.max(-5, Math.min(5, (p[id] || 0) + d)) }));
-  const removeSel = (id) => setSels((p) => { const n = { ...p }; delete n[id]; return n; });
+  /* clear stale tag selections when switching manage cat */
+  useEffect(() => { setNewPromptTagIds([]); setNewPromptTagInput(""); setEditId(null); }, [manageCat]);
+
+  /* ── derived ── */
+  const sortedCats = useMemo(() => sortByOrder(cats), [cats]);
+  const sortedSavedCats = useMemo(() => sortByOrder(savedCats), [savedCats]);
+  const activeCatObj = useMemo(() => sortedCats.find(c => c.id === activeCat) || sortedCats[0], [sortedCats, activeCat]);
+  const manageCatObj = useMemo(() => sortedCats.find(c => c.id === manageCat) || sortedCats[0], [sortedCats, manageCat]);
+
+  /* ── selection ops ── */
+  const toggleSel = (id) => setSels(p => {
+    const n = { ...p };
+    if (n[id]) delete n[id];
+    else n[id] = { w: 0, neg: addMode === "negative" };
+    return n;
+  });
+  const setWeight = (id, d) => setSels(p => {
+    if (!p[id]) return p;
+    return { ...p, [id]: { ...p[id], w: Math.max(-5, Math.min(5, p[id].w + d)) } };
+  });
+  const flipSel = (id) => setSels(p => p[id] ? { ...p, [id]: { ...p[id], neg: !p[id].neg } } : p);
+  const removeSel = (id) => setSels(p => { const n = { ...p }; delete n[id]; return n; });
   const clearAll = () => setSels({});
 
   /* ── prompt CRUD ── */
   const addPromptItem = () => {
     if (!newPrompt.trim()) return;
-    setPrompts((p) => [...p, { id: uid(), catId: manageCat, prompt: newPrompt.trim(), label: newLabel.trim() || newPrompt.trim(), neg: addMode === "negative" }]);
-    setNewPrompt(""); setNewLabel(""); flash("プロンプト追加完了");
+    setPrompts(p => [...p, { id: uid(), catId: manageCat, prompt: newPrompt.trim(), label: newLabel.trim() || newPrompt.trim(), tagIds: [...newPromptTagIds] }]);
+    setNewPrompt(""); setNewLabel(""); setNewPromptTagIds([]); setNewPromptTagInput("");
+    flash("プロンプト追加完了");
   };
-  const saveEdit = (id) => { setPrompts((p) => p.map((x) => x.id === id ? { ...x, prompt: editPrompt, label: editLabel } : x)); setEditId(null); };
-  const deletePrompt = (id) => { setPrompts((p) => p.filter((x) => x.id !== id)); setSels((p) => { const n = { ...p }; delete n[id]; return n; }); };
+  const startEdit = (p) => { setEditId(p.id); setEditPrompt(p.prompt); setEditLabel(p.label); setEditTagIds([...(p.tagIds || [])]); setEditTagInput(""); };
+  const saveEdit = (id) => { setPrompts(p => p.map(x => x.id === id ? { ...x, prompt: editPrompt, label: editLabel, tagIds: [...editTagIds] } : x)); setEditId(null); };
+  const deletePrompt = (id) => { setPrompts(p => p.filter(x => x.id !== id)); setSels(p => { const n = { ...p }; delete n[id]; return n; }); };
 
-  /* ── category CRUD ── */
-  const addCategory = () => { if (!newCatName.trim()) return; setCats((p) => [...p, { id: uid(), name: newCatName.trim(), order: p.length }]); setNewCatName(""); };
-  const renameCategory = (id) => { if (!renameCatName.trim()) return; setCats((p) => p.map((c) => c.id === id ? { ...c, name: renameCatName.trim() } : c)); setRenameCatId(null); };
+  /* ── category CRUD + reorder ── */
+  const addCategory = () => { if (!newCatName.trim()) return; setCats(p => [...p, { id: uid(), name: newCatName.trim(), order: p.length, tags: [] }]); setNewCatName(""); };
+  const renameCategory = (id) => { if (!renameCatName.trim()) return; setCats(p => p.map(c => c.id === id ? { ...c, name: renameCatName.trim() } : c)); setRenameCatId(null); };
   const deleteCategory = (id) => {
-    const ids = prompts.filter((x) => x.catId === id).map((x) => x.id);
-    setCats((p) => p.filter((c) => c.id !== id));
-    setPrompts((p) => p.filter((x) => x.catId !== id));
-    setSels((p) => { const n = { ...p }; ids.forEach((i) => delete n[i]); return n; });
-    if (activeCat === id) setActiveCat(cats.find((c) => c.id !== id)?.id || "");
-    if (manageCat === id) setManageCat(cats.find((c) => c.id !== id)?.id || "");
+    const ids = prompts.filter(x => x.catId === id).map(x => x.id);
+    setCats(p => sortByOrder(p.filter(c => c.id !== id)).map((c, i) => ({ ...c, order: i })));
+    setPrompts(p => p.filter(x => x.catId !== id));
+    setSels(p => { const n = { ...p }; ids.forEach(i => delete n[i]); return n; });
+    if (activeCat === id) setActiveCat(sortedCats.find(c => c.id !== id)?.id || "");
+    if (manageCat === id) setManageCat(sortedCats.find(c => c.id !== id)?.id || "");
   };
+  const moveCat = (id, dir) => setCats(p => {
+    const sorted = sortByOrder(p);
+    const idx = sorted.findIndex(c => c.id === id);
+    const j = idx + dir;
+    if (idx < 0 || j < 0 || j >= sorted.length) return p;
+    [sorted[idx], sorted[j]] = [sorted[j], sorted[idx]];
+    return sorted.map((c, i) => ({ ...c, order: i }));
+  });
+
+  /* ── tag CRUD (per-category) ── */
+  const addTagToCat = (catId, name) => {
+    const t = name.trim();
+    if (!t) return null;
+    const cat = cats.find(c => c.id === catId);
+    const existing = (cat?.tags || []).find(x => x.name === t);
+    if (existing) return existing.id;
+    const newTag = { id: uid(), name: t };
+    setCats(p => p.map(c => c.id === catId ? { ...c, tags: [...(c.tags || []), newTag] } : c));
+    return newTag.id;
+  };
+  const addTag = () => {
+    const id = addTagToCat(manageCat, newTagName);
+    if (!id) return;
+    if ((manageCatObj?.tags || []).some(t => t.name === newTagName.trim() && t.id !== id)) flash("既存タグです");
+    setNewTagName("");
+  };
+  const renameTag = (catId, tagId) => {
+    if (!renameTagName.trim()) return;
+    setCats(p => p.map(c => c.id === catId ? { ...c, tags: (c.tags || []).map(t => t.id === tagId ? { ...t, name: renameTagName.trim() } : t) } : c));
+    setRenameTagId(null);
+  };
+  const deleteTag = (catId, tagId) => {
+    setCats(p => p.map(c => c.id === catId ? { ...c, tags: (c.tags || []).filter(t => t.id !== tagId) } : c));
+    setPrompts(p => p.map(x => x.catId === catId ? { ...x, tagIds: (x.tagIds || []).filter(id => id !== tagId) } : x));
+    setTagFilter(t => t.filter(id => id !== tagId));
+  };
+
+  // Quick-create-or-pick tag from the prompt add/edit input
+  const quickAddTagForNew = () => {
+    const id = addTagToCat(manageCat, newPromptTagInput);
+    if (!id) return;
+    setNewPromptTagIds(arr => arr.includes(id) ? arr : [...arr, id]);
+    setNewPromptTagInput("");
+  };
+  const quickAddTagForEdit = (catId) => {
+    const id = addTagToCat(catId, editTagInput);
+    if (!id) return;
+    setEditTagIds(arr => arr.includes(id) ? arr : [...arr, id]);
+    setEditTagInput("");
+  };
+
+  /* ── saved category CRUD + reorder ── */
+  const addSavedCat = () => { if (!newSavedCatName.trim()) return; setSavedCats(p => [...p, { id: uid(), name: newSavedCatName.trim(), order: p.length }]); setNewSavedCatName(""); };
+  const renameSavedCategory = (id) => { if (!renameSavedCatName.trim()) return; setSavedCats(p => p.map(c => c.id === id ? { ...c, name: renameSavedCatName.trim() } : c)); setRenameSavedCatId(null); };
+  const deleteSavedCat = (id) => {
+    if (id === "default") { flash("既定カテゴリは削除できません"); return; }
+    setSaved(p => p.map(s => s.savedCatId === id ? { ...s, savedCatId: "default" } : s));
+    setSavedCats(p => sortByOrder(p.filter(c => c.id !== id)).map((c, i) => ({ ...c, order: i })));
+  };
+  const moveSavedCat = (id, dir) => setSavedCats(p => {
+    const sorted = sortByOrder(p);
+    const idx = sorted.findIndex(c => c.id === id);
+    const j = idx + dir;
+    if (idx < 0 || j < 0 || j >= sorted.length) return p;
+    [sorted[idx], sorted[j]] = [sorted[j], sorted[idx]];
+    return sorted.map((c, i) => ({ ...c, order: i }));
+  });
+  const moveSavedItem = (id, savedCatId) => setSaved(p => p.map(s => s.id === id ? { ...s, savedCatId } : s));
 
   /* ── emphasis ── */
   const handleEmphasis = (o, c) => {
@@ -143,7 +297,11 @@ export default function App() {
   const stripOuter = () => { const m = newPrompt.match(/^[\{\[]([\s\S]*?)[\}\]]$/); if (m) setNewPrompt(m[1]); };
 
   /* ── output ── */
-  const buildOut = (neg) => Object.entries(sels).map(([id, w]) => { const p = prompts.find((x) => x.id === id); if (!p || p.neg !== neg) return null; return wrap(p.prompt, w); }).filter(Boolean).join(", ");
+  const buildOut = (neg) => Object.entries(sels).map(([id, s]) => {
+    const p = prompts.find(x => x.id === id);
+    if (!p || !!s.neg !== neg) return null;
+    return wrap(p.prompt, s.w);
+  }).filter(Boolean).join(", ");
   const posOut = buildOut(false);
   const negOut = buildOut(true);
   const selCount = Object.keys(sels).length;
@@ -152,22 +310,23 @@ export default function App() {
   const saveOutput = () => {
     if (!posOut && !negOut) { flash("出力するプロンプトがありません"); return; }
     const name = saveName.trim() || `プロンプト_${saved.length + 1}`;
-    setSaved((p) => [{ id: uid(), name, pos: posOut, neg: negOut, date: now() }, ...p]);
+    const catId = sortedSavedCats.find(c => c.id === saveCatId) ? saveCatId : "default";
+    setSaved(p => [{ id: uid(), savedCatId: catId, name, pos: posOut, neg: negOut, date: now() }, ...p]);
     setSaveName(""); flash(`「${name}」を保存しました`);
   };
-  const deleteSaved = (id) => setSaved((p) => p.filter((x) => x.id !== id));
+  const deleteSaved = (id) => setSaved(p => p.filter(x => x.id !== id));
 
-  /* ── copy: iPad Safari 対応 ── */
+  /* ── copy ── */
   const copyText = async (text, label) => {
+    if (!text) return;
     try {
       await navigator.clipboard.writeText(text);
-      flash(label + " コピー完了！");
+      flash((label || "テキスト") + " コピー完了！");
     } catch {
-      // fallback for older Safari
       const ta = document.createElement("textarea");
       ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
       document.body.appendChild(ta); ta.focus(); ta.select();
-      try { document.execCommand("copy"); flash(label + " コピー完了！"); }
+      try { document.execCommand("copy"); flash((label || "テキスト") + " コピー完了！"); }
       catch { flash("コピー失敗 — 手動でコピーしてください"); }
       document.body.removeChild(ta);
     }
@@ -175,39 +334,50 @@ export default function App() {
 
   /* ── export/import: prompt list ── */
   const exportList = () => {
-    const blob = new Blob([JSON.stringify({ version: 2, cats, prompts }, null, 2)], { type: "application/json" });
+    const blob = new Blob([JSON.stringify({ version: 3, cats, prompts }, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     Object.assign(document.createElement("a"), { href: url, download: "nai-prompt-list.json" }).click();
     URL.revokeObjectURL(url); flash("プロンプト一覧をエクスポートしました");
   };
   const importList = async (e) => {
     const f = e.target.files?.[0]; if (!f) return;
-    try { const d = JSON.parse(await f.text()); if (d.cats) setCats(d.cats); if (d.prompts) setPrompts(d.prompts); setSels({}); flash(`インポート完了（${(d.prompts || []).length}件）`); }
-    catch { flash("読み込みエラー"); } e.target.value = "";
-  };
-
-  /* ── export/import: saved ── */
-  const exportSaved = () => {
-    if (!saved.length) { flash("保存済みプロンプトなし"); return; }
-    const blob = new Blob([JSON.stringify({ version: 2, saved }, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    Object.assign(document.createElement("a"), { href: url, download: "nai-saved-outputs.json" }).click();
-    URL.revokeObjectURL(url); flash("エクスポート完了");
-  };
-  const importSaved = async (e) => {
-    const f = e.target.files?.[0]; if (!f) return;
-    try { const d = JSON.parse(await f.text()); if (Array.isArray(d.saved)) { setSaved((p) => [...d.saved, ...p]); flash(`${d.saved.length}件読み込み完了`); } else flash("形式エラー"); }
-    catch { flash("読み込みエラー"); } e.target.value = "";
+    try {
+      const d = JSON.parse(await f.text());
+      if (Array.isArray(d.cats)) setCats(d.cats.map(c => ({ ...c, tags: c.tags || [] })));
+      if (Array.isArray(d.prompts)) setPrompts(d.prompts.map(({ neg, ...p }) => ({ ...p, tagIds: p.tagIds || [] })));
+      setSels({});
+      flash(`インポート完了（${(d.prompts || []).length}件）`);
+    } catch { flash("読み込みエラー"); }
+    e.target.value = "";
   };
 
   /* ── filtered ── */
-  const filtered = prompts.filter((p) => {
-    const catMatch = tab === "select" ? p.catId === activeCat : tab === "manage" ? p.catId === manageCat : false;
-    if (!catMatch) return false;
-    if (!search) return true;
-    const q = search.toLowerCase();
-    return p.prompt.toLowerCase().includes(q) || p.label.toLowerCase().includes(q);
-  });
+  const filteredSelect = useMemo(() => {
+    if (!activeCatObj) return [];
+    return prompts.filter(p => {
+      if (p.catId !== activeCatObj.id) return false;
+      if (tagFilter.length && !tagFilter.some(tid => (p.tagIds || []).includes(tid))) return false;
+      if (search) {
+        const q = search.toLowerCase();
+        if (!p.prompt.toLowerCase().includes(q) && !p.label.toLowerCase().includes(q)) return false;
+      }
+      return true;
+    });
+  }, [prompts, activeCatObj, tagFilter, search]);
+
+  const filteredManage = useMemo(() => {
+    if (!manageCatObj) return [];
+    return prompts.filter(p => {
+      if (p.catId !== manageCatObj.id) return false;
+      if (search) {
+        const q = search.toLowerCase();
+        if (!p.prompt.toLowerCase().includes(q) && !p.label.toLowerCase().includes(q)) return false;
+      }
+      return true;
+    });
+  }, [prompts, manageCatObj, search]);
+
+  const tagCount = (catId, tagId) => prompts.filter(p => p.catId === catId && (p.tagIds || []).includes(tagId)).length;
 
   /* ── bottom bar height calc ── */
   const barPad = selCount > 0 ? 200 : 80;
@@ -236,10 +406,7 @@ export default function App() {
         ::-webkit-scrollbar{width:4px;height:4px} ::-webkit-scrollbar-track{background:transparent} ::-webkit-scrollbar-thumb{background:var(--bdr);border-radius:2px}
         @keyframes fi{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}} .fi{animation:fi .22s ease-out}
         @keyframes pop{0%{transform:scale(.94);opacity:.6}100%{transform:scale(1);opacity:1}} .pop{animation:pop .15s ease-out}
-        /* iPad landscape sidebar optimization */
-        @media(min-width:1024px){
-          .main-content{display:grid;grid-template-columns:200px 1fr;gap:0}
-        }
+        @media(min-width:1024px){.main-content{display:grid;grid-template-columns:200px 1fr;gap:0}}
       `}</style>
 
       <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
@@ -267,31 +434,74 @@ export default function App() {
           {/* ═══ SELECT ═══ */}
           {tab==="select"&&(
             <div className="fi">
-              <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:10,marginBottom:14,WebkitOverflowScrolling:"touch"}}>
-                {cats.map((c)=>{
-                  const cnt=prompts.filter(p=>p.catId===c.id&&sels[p.id]!==undefined).length;
+              {/* category tabs */}
+              <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:10,marginBottom:10,WebkitOverflowScrolling:"touch"}}>
+                {sortedCats.map((c)=>{
+                  const cnt=prompts.filter(p=>p.catId===c.id&&sels[p.id]).length;
                   const a=activeCat===c.id;
-                  return(<button key={c.id} onClick={()=>{setActiveCat(c.id);setSearch("")}} style={{
+                  return(<button key={c.id} onClick={()=>{setActiveCat(c.id);setSearch("");setTagFilter([])}} style={{
                     padding:"8px 16px",borderRadius:20,fontSize:14,fontWeight:500,whiteSpace:"nowrap",
                     background:a?"var(--accDim)":"var(--bg2)",color:a?"var(--acc)":"var(--dim)",
                     border:a?"1px solid var(--acc)":"1px solid var(--bdr)",
                   }}>{c.name}{cnt>0&&<span style={{marginLeft:5,fontSize:11,opacity:.7}}>({cnt})</span>}</button>);
                 })}
               </div>
+
+              {/* mode toggle (insert as positive/negative) */}
+              <div style={{display:"flex",gap:8,marginBottom:10,alignItems:"center",flexWrap:"wrap"}}>
+                <span style={{fontSize:13,color:"var(--dim)"}}>追加モード:</span>
+                {[["positive","⊕ ポジティブ","--pos","--posBg","--posBdr"],["negative","⊖ ネガティブ","--neg","--negBg","--negBdr"]].map(([k,l,c,bg,bd])=>(
+                  <button key={k} onClick={()=>setAddMode(k)} style={{
+                    padding:"6px 14px",borderRadius:18,fontSize:13,fontWeight:600,
+                    background:addMode===k?`var(${bg})`:"var(--bg2)",color:addMode===k?`var(${c})`:"var(--dim)",
+                    border:addMode===k?`2px solid var(${bd})`:"1px solid var(--bdr)",
+                  }}>{l}</button>
+                ))}
+              </div>
+
+              {/* tag filter */}
+              {activeCatObj && (activeCatObj.tags||[]).length>0 && (
+                <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10,alignItems:"center"}}>
+                  <span style={{fontSize:12,color:"var(--dim)"}}>タグ:</span>
+                  <button onClick={()=>setTagFilter([])} style={{
+                    padding:"4px 10px",borderRadius:14,fontSize:12,fontWeight:500,
+                    background:tagFilter.length===0?"var(--accDim)":"var(--bg2)",
+                    color:tagFilter.length===0?"var(--acc)":"var(--dim)",
+                    border:tagFilter.length===0?"1px solid var(--acc)":"1px solid var(--bdr)",
+                  }}>すべて</button>
+                  {(activeCatObj.tags||[]).map(t=>{
+                    const a=tagFilter.includes(t.id);
+                    return <button key={t.id} onClick={()=>setTagFilter(tf=>tf.includes(t.id)?tf.filter(x=>x!==t.id):[...tf,t.id])} style={{
+                      padding:"4px 10px",borderRadius:14,fontSize:12,fontWeight:500,
+                      background:a?"var(--accDim)":"var(--bg2)",color:a?"var(--acc)":"var(--dim)",
+                      border:a?"1px solid var(--acc)":"1px solid var(--bdr)",
+                    }}>#{t.name}</button>;
+                  })}
+                </div>
+              )}
+
               <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="検索..." style={{marginBottom:14}}/>
               <div style={{display:"flex",flexWrap:"wrap",gap:10,minHeight:60}}>
-                {filtered.length===0&&<span style={{color:"var(--dim)",fontSize:14,padding:12}}>プロンプトがありません</span>}
-                {filtered.map((p)=>{
-                  const sel=sels[p.id]!==undefined;
-                  return(<button key={p.id} onClick={()=>toggleSel(p.id)} className={sel?"pop":""} style={{
-                    padding:"10px 16px",borderRadius:10,fontSize:14,fontWeight:500,
-                    border:sel?`2px solid ${p.neg?"var(--negBdr)":"var(--posBdr)"}`:"1px solid var(--bdr)",
-                    background:sel?(p.neg?"var(--negBg)":"var(--posBg)"):"var(--bg2)",
-                    color:sel?(p.neg?"var(--neg)":"var(--pos)"):"var(--txt)",
+                {filteredSelect.length===0&&<span style={{color:"var(--dim)",fontSize:14,padding:12}}>プロンプトがありません</span>}
+                {filteredSelect.map((p)=>{
+                  const sel=sels[p.id];
+                  const tagNames=(p.tagIds||[]).map(tid=>(activeCatObj?.tags||[]).find(t=>t.id===tid)?.name).filter(Boolean);
+                  return(<button key={p.id}
+                    onClick={()=>toggleSel(p.id)}
+                    onDoubleClick={(e)=>{e.preventDefault();copyText(p.prompt,p.label)}}
+                    title="クリック: 選択／ダブルクリック: コピー"
+                    className={sel?"pop":""} style={{
+                      padding:"10px 16px",borderRadius:10,fontSize:14,fontWeight:500,
+                      border:sel?`2px solid ${sel.neg?"var(--negBdr)":"var(--posBdr)"}`:"1px solid var(--bdr)",
+                      background:sel?(sel.neg?"var(--negBg)":"var(--posBg)"):"var(--bg2)",
+                      color:sel?(sel.neg?"var(--neg)":"var(--pos)"):"var(--txt)",
+                      display:"inline-flex",alignItems:"center",gap:6,
                   }}>
-                    <span style={{fontSize:12,opacity:.6,marginRight:5}}>{p.neg?"⊖":"⊕"}</span>
-                    {p.label}
-                    <span className="mono" style={{fontSize:11,opacity:.4,marginLeft:6}}>{p.prompt}</span>
+                    <span style={{fontSize:12,opacity:.6}}>{sel?(sel.neg?"⊖":"⊕"):"·"}</span>
+                    <span>{p.label}</span>
+                    <span className="mono" style={{fontSize:11,opacity:.4}}>{p.prompt}</span>
+                    {tagNames.length>0&&<span style={{fontSize:10,opacity:.5}}>{tagNames.map(n=>"#"+n).join(" ")}</span>}
+                    <span style={{fontSize:10,opacity:.4,marginLeft:2}}>📋</span>
                   </button>);
                 })}
               </div>
@@ -301,20 +511,12 @@ export default function App() {
           {/* ═══ MANAGE ═══ */}
           {tab==="manage"&&(
             <div className="fi">
-              <div style={{display:"flex",gap:8,marginBottom:14,alignItems:"center",flexWrap:"wrap"}}>
-                <span style={{fontSize:14,color:"var(--dim)"}}>モード:</span>
-                {[["positive","⊕ ポジティブ","--pos","--posBg","--posBdr"],["negative","⊖ ネガティブ","--neg","--negBg","--negBdr"]].map(([k,l,c,bg,bd])=>(
-                  <button key={k} onClick={()=>setAddMode(k)} style={{
-                    padding:"8px 18px",borderRadius:20,fontSize:14,fontWeight:600,
-                    background:addMode===k?`var(${bg})`:"var(--bg2)",color:addMode===k?`var(${c})`:"var(--dim)",
-                    border:addMode===k?`2px solid var(${bd})`:"1px solid var(--bdr)",
-                  }}>{l}</button>
-                ))}
-              </div>
-
-              <div style={{background:"var(--bg2)",borderRadius:12,padding:16,marginBottom:18,border:`1px solid var(${addMode==="positive"?"--posBdr":"--negBdr"})`}}>
-                <div style={{fontSize:15,fontWeight:600,marginBottom:10,color:addMode==="positive"?"var(--pos)":"var(--neg)"}}>プロンプト追加</div>
-                <select value={manageCat} onChange={e=>setManageCat(e.target.value)} style={{marginBottom:10,width:"auto",minWidth:160}}>{cats.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>
+              {/* Add prompt section */}
+              <div style={{background:"var(--bg2)",borderRadius:12,padding:16,marginBottom:18,border:"1px solid var(--bdr)"}}>
+                <div style={{fontSize:15,fontWeight:600,marginBottom:10}}>プロンプト追加</div>
+                <select value={manageCat} onChange={e=>setManageCat(e.target.value)} style={{marginBottom:10,width:"auto",minWidth:160}}>
+                  {sortedCats.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
                 <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
                   <Btn on={()=>handleEmphasis("{","}")} bg="var(--posBg)" color="var(--pos)" border="1px solid var(--posBdr)" small>{"{ } 強調"}</Btn>
                   <Btn on={()=>handleEmphasis("{{","}}")} bg="var(--posBg)" color="var(--pos)" border="1px solid var(--posBdr)" small>{"{{ }} ×2"}</Btn>
@@ -325,45 +527,98 @@ export default function App() {
                   style={{fontFamily:"'JetBrains Mono','Menlo',monospace",fontSize:15,marginBottom:8,resize:"vertical"}}/>
                 {newPrompt&&(<div style={{marginBottom:8,padding:"6px 12px",borderRadius:8,background:"var(--bg0)",fontSize:14}}>
                   <span style={{color:"var(--dim)",marginRight:6}}>プレビュー:</span>
-                  <span className="mono" style={{color:addMode==="positive"?"var(--pos)":"var(--neg)"}}>{newPrompt}</span>
+                  <span className="mono">{newPrompt}</span>
                 </div>)}
-                <div style={{display:"flex",gap:8}}>
+                <div style={{display:"flex",gap:8,marginBottom:10}}>
                   <input value={newLabel} onChange={e=>setNewLabel(e.target.value)} placeholder="表示名 (日本語)　例: ジャンプ"/>
-                  <Btn on={addPromptItem} bg={addMode==="positive"?"var(--posBdr)":"var(--negBdr)"} color="#fff" border="none">追加</Btn>
                 </div>
+
+                {/* tags chooser for new prompt */}
+                <div style={{marginBottom:10}}>
+                  <div style={{fontSize:12,color:"var(--dim)",marginBottom:6}}>タグ ({manageCatObj?.name} 用)</div>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:6}}>
+                    {(manageCatObj?.tags||[]).length===0&&<span style={{fontSize:12,color:"var(--dim)"}}>既存タグなし — 下から作成</span>}
+                    {(manageCatObj?.tags||[]).map(t=>{
+                      const a=newPromptTagIds.includes(t.id);
+                      return <button key={t.id} onClick={()=>setNewPromptTagIds(arr=>arr.includes(t.id)?arr.filter(x=>x!==t.id):[...arr,t.id])} style={{
+                        padding:"4px 10px",borderRadius:14,fontSize:12,fontWeight:500,
+                        background:a?"var(--accDim)":"var(--bg2)",color:a?"var(--acc)":"var(--dim)",
+                        border:a?"1px solid var(--acc)":"1px solid var(--bdr)",
+                      }}>#{t.name}</button>;
+                    })}
+                  </div>
+                  <div style={{display:"flex",gap:6}}>
+                    <input value={newPromptTagInput} onChange={e=>setNewPromptTagInput(e.target.value)}
+                      onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();quickAddTagForNew()}}}
+                      placeholder="新規タグ名（Enter または +）" style={{fontSize:14}}/>
+                    <Btn on={quickAddTagForNew} small>＋ 新規タグ</Btn>
+                  </div>
+                </div>
+
+                <Btn on={addPromptItem} bg="var(--acc)" color="#000" border="none">追加</Btn>
               </div>
 
+              {/* Existing prompts list */}
               <div style={{marginBottom:18}}>
                 <div style={{display:"flex",gap:8,marginBottom:8,alignItems:"center",flexWrap:"wrap"}}>
                   <span style={{fontSize:15,fontWeight:600}}>登録済みプロンプト</span>
-                  <select value={manageCat} onChange={e=>setManageCat(e.target.value)} style={{marginLeft:"auto",width:"auto",fontSize:14}}>{cats.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>
+                  <select value={manageCat} onChange={e=>setManageCat(e.target.value)} style={{marginLeft:"auto",width:"auto",fontSize:14}}>
+                    {sortedCats.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
                 </div>
                 <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="検索..." style={{marginBottom:8}}/>
-                <div style={{display:"flex",flexDirection:"column",gap:5,maxHeight:300,overflowY:"auto"}}>
-                  {filtered.length===0&&<span style={{color:"var(--dim)",fontSize:14}}>プロンプトなし</span>}
-                  {filtered.map(p=>(
-                    <div key={p.id} style={{display:"flex",alignItems:"center",gap:6,padding:"10px 12px",borderRadius:8,background:"var(--bg2)",borderLeft:`3px solid var(${p.neg?"--negBdr":"--posBdr"})`}}>
+                <div style={{display:"flex",flexDirection:"column",gap:5,maxHeight:400,overflowY:"auto"}}>
+                  {filteredManage.length===0&&<span style={{color:"var(--dim)",fontSize:14}}>プロンプトなし</span>}
+                  {filteredManage.map(p=>{
+                    const tagNames=(p.tagIds||[]).map(tid=>(manageCatObj?.tags||[]).find(t=>t.id===tid)?.name).filter(Boolean);
+                    return (
+                    <div key={p.id} style={{display:"flex",flexDirection:"column",gap:6,padding:"10px 12px",borderRadius:8,background:"var(--bg2)",borderLeft:"3px solid var(--accDim)"}}>
                       {editId===p.id?(
                         <>
-                          <input value={editPrompt} onChange={e=>setEditPrompt(e.target.value)} style={{flex:1,fontSize:14}}/>
-                          <input value={editLabel} onChange={e=>setEditLabel(e.target.value)} style={{width:100,fontSize:14}}/>
-                          <Btn on={()=>saveEdit(p.id)} bg="var(--acc)" color="#000" border="none" small>保存</Btn>
-                          <Btn on={()=>setEditId(null)} small>取消</Btn>
+                          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                            <input value={editPrompt} onChange={e=>setEditPrompt(e.target.value)} style={{flex:1,minWidth:160,fontSize:14}}/>
+                            <input value={editLabel} onChange={e=>setEditLabel(e.target.value)} style={{width:140,fontSize:14}}/>
+                          </div>
+                          <div>
+                            <div style={{fontSize:12,color:"var(--dim)",marginBottom:4}}>タグ</div>
+                            <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:6}}>
+                              {(manageCatObj?.tags||[]).map(t=>{
+                                const a=editTagIds.includes(t.id);
+                                return <button key={t.id} onClick={()=>setEditTagIds(arr=>arr.includes(t.id)?arr.filter(x=>x!==t.id):[...arr,t.id])} style={{
+                                  padding:"4px 10px",borderRadius:14,fontSize:12,
+                                  background:a?"var(--accDim)":"var(--bg2)",color:a?"var(--acc)":"var(--dim)",
+                                  border:a?"1px solid var(--acc)":"1px solid var(--bdr)",
+                                }}>#{t.name}</button>;
+                              })}
+                            </div>
+                            <div style={{display:"flex",gap:6}}>
+                              <input value={editTagInput} onChange={e=>setEditTagInput(e.target.value)}
+                                onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();quickAddTagForEdit(p.catId)}}}
+                                placeholder="新規タグ名" style={{fontSize:13}}/>
+                              <Btn on={()=>quickAddTagForEdit(p.catId)} small>＋ 新規</Btn>
+                            </div>
+                          </div>
+                          <div style={{display:"flex",gap:6,justifyContent:"flex-end"}}>
+                            <Btn on={()=>saveEdit(p.id)} bg="var(--acc)" color="#000" border="none" small>保存</Btn>
+                            <Btn on={()=>setEditId(null)} small>取消</Btn>
+                          </div>
                         </>
                       ):(
-                        <>
-                          <span style={{fontSize:12,color:p.neg?"var(--neg)":"var(--pos)",fontWeight:700,width:18}}>{p.neg?"⊖":"⊕"}</span>
+                        <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
                           <span className="mono" style={{fontSize:14,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis"}}>{p.prompt}</span>
                           <span style={{fontSize:13,color:"var(--dim)",flexShrink:0}}>{p.label}</span>
-                          <Btn on={()=>{setEditId(p.id);setEditPrompt(p.prompt);setEditLabel(p.label)}} small>編集</Btn>
+                          {tagNames.length>0&&<span style={{fontSize:11,color:"var(--acc)",opacity:.7}}>{tagNames.map(n=>"#"+n).join(" ")}</span>}
+                          <Btn on={()=>copyText(p.prompt,p.label)} small>コピー</Btn>
+                          <Btn on={()=>startEdit(p)} small>編集</Btn>
                           <Btn on={()=>deletePrompt(p.id)} bg="var(--negBg)" color="var(--neg)" border="1px solid var(--negBdr)" small>削除</Btn>
-                        </>
+                        </div>
                       )}
                     </div>
-                  ))}
+                  );})}
                 </div>
               </div>
 
+              {/* Category management */}
               <div style={{background:"var(--bg2)",borderRadius:12,padding:16,marginBottom:18,border:"1px solid var(--bdr)"}}>
                 <div style={{fontSize:15,fontWeight:600,marginBottom:10}}>カテゴリ管理</div>
                 <div style={{display:"flex",gap:8,marginBottom:12}}>
@@ -371,8 +626,8 @@ export default function App() {
                   <Btn on={addCategory} bg="var(--acc)" color="#000" border="none">追加</Btn>
                 </div>
                 <div style={{display:"flex",flexDirection:"column",gap:5}}>
-                  {cats.map(c=>(
-                    <div key={c.id} style={{display:"flex",alignItems:"center",gap:6,padding:"8px 12px",borderRadius:8,background:"var(--bg0)"}}>
+                  {sortedCats.map((c,idx)=>(
+                    <div key={c.id} style={{display:"flex",alignItems:"center",gap:6,padding:"8px 12px",borderRadius:8,background:"var(--bg0)",flexWrap:"wrap"}}>
                       {renameCatId===c.id?(
                         <>
                           <input value={renameCatName} onChange={e=>setRenameCatName(e.target.value)} style={{flex:1,fontSize:14}}/>
@@ -381,8 +636,10 @@ export default function App() {
                         </>
                       ):(
                         <>
-                          <span style={{flex:1,fontSize:14}}>{c.name}</span>
-                          <span style={{fontSize:12,color:"var(--dim)"}}>{prompts.filter(p=>p.catId===c.id).length}件</span>
+                          <Btn on={()=>moveCat(c.id,-1)} disabled={idx===0} small style={{padding:"6px 8px"}}>↑</Btn>
+                          <Btn on={()=>moveCat(c.id,1)} disabled={idx===sortedCats.length-1} small style={{padding:"6px 8px"}}>↓</Btn>
+                          <span style={{flex:1,fontSize:14,minWidth:120}}>{c.name}</span>
+                          <span style={{fontSize:12,color:"var(--dim)"}}>{prompts.filter(p=>p.catId===c.id).length}件 / タグ{(c.tags||[]).length}</span>
                           <Btn on={()=>{setRenameCatId(c.id);setRenameCatName(c.name)}} small>名前変更</Btn>
                           <Btn on={()=>{if(confirm(`「${c.name}」と中のプロンプトを全削除しますか？`))deleteCategory(c.id)}} bg="var(--negBg)" color="var(--neg)" border="1px solid var(--negBdr)" small>削除</Btn>
                         </>
@@ -392,6 +649,41 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Tag management for current category */}
+              {manageCatObj&&(
+                <div style={{background:"var(--bg2)",borderRadius:12,padding:16,marginBottom:18,border:"1px solid var(--bdr)"}}>
+                  <div style={{fontSize:15,fontWeight:600,marginBottom:10}}>タグ管理（{manageCatObj.name}）</div>
+                  <div style={{display:"flex",gap:8,marginBottom:12}}>
+                    <input value={newTagName} onChange={e=>setNewTagName(e.target.value)}
+                      onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();addTag()}}}
+                      placeholder="新しいタグ名"/>
+                    <Btn on={addTag} bg="var(--acc)" color="#000" border="none">追加</Btn>
+                  </div>
+                  <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                    {(manageCatObj.tags||[]).length===0&&<span style={{color:"var(--dim)",fontSize:13}}>タグなし</span>}
+                    {(manageCatObj.tags||[]).map(t=>(
+                      <div key={t.id} style={{display:"flex",alignItems:"center",gap:6,padding:"8px 12px",borderRadius:8,background:"var(--bg0)",flexWrap:"wrap"}}>
+                        {renameTagId===t.id?(
+                          <>
+                            <input value={renameTagName} onChange={e=>setRenameTagName(e.target.value)} style={{flex:1,fontSize:14}}/>
+                            <Btn on={()=>renameTag(manageCatObj.id,t.id)} bg="var(--acc)" color="#000" border="none" small>保存</Btn>
+                            <Btn on={()=>setRenameTagId(null)} small>取消</Btn>
+                          </>
+                        ):(
+                          <>
+                            <span style={{flex:1,fontSize:14,minWidth:120}}>#{t.name}</span>
+                            <span style={{fontSize:12,color:"var(--dim)"}}>{tagCount(manageCatObj.id,t.id)}件使用</span>
+                            <Btn on={()=>{setRenameTagId(t.id);setRenameTagName(t.name)}} small>名前変更</Btn>
+                            <Btn on={()=>{if(confirm(`タグ「${t.name}」を削除しますか？`))deleteTag(manageCatObj.id,t.id)}} bg="var(--negBg)" color="var(--neg)" border="1px solid var(--negBdr)" small>削除</Btn>
+                          </>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* export/import */}
               <div style={{background:"var(--bg2)",borderRadius:12,padding:16,border:"1px solid var(--bdr)"}}>
                 <div style={{fontSize:15,fontWeight:600,marginBottom:10}}>プロンプト一覧の書き出し／読み込み</div>
                 <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
@@ -414,69 +706,116 @@ export default function App() {
                   <span style={{fontSize:15,fontWeight:600,color:"var(--pos)"}}>⊕ ポジティブ</span>
                   <Btn on={()=>copyText(posOut,"ポジティブ")} disabled={!posOut} bg={posOut?"var(--posBdr)":undefined} color={posOut?"#fff":undefined} border="none" small style={{marginLeft:"auto"}}>コピー</Btn>
                 </div>
-                <div className="mono" style={{padding:14,borderRadius:10,fontSize:14,lineHeight:1.7,minHeight:50,wordBreak:"break-all",background:"var(--bg2)",border:"1px solid var(--posBdr)",color:"var(--pos)",userSelect:"all",WebkitUserSelect:"all"}}>{posOut||<span style={{opacity:.35}}>（未選択）</span>}</div>
+                <div className="mono" onDoubleClick={()=>copyText(posOut,"ポジティブ")} title="ダブルクリックでコピー" style={{padding:14,borderRadius:10,fontSize:14,lineHeight:1.7,minHeight:50,wordBreak:"break-all",background:"var(--bg2)",border:"1px solid var(--posBdr)",color:"var(--pos)",userSelect:"all",WebkitUserSelect:"all",cursor:posOut?"pointer":"default"}}>{posOut||<span style={{opacity:.35}}>（未選択）</span>}</div>
               </div>
               <div style={{marginBottom:20}}>
                 <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
                   <span style={{fontSize:15,fontWeight:600,color:"var(--neg)"}}>⊖ ネガティブ</span>
                   <Btn on={()=>copyText(negOut,"ネガティブ")} disabled={!negOut} bg={negOut?"var(--negBdr)":undefined} color={negOut?"#fff":undefined} border="none" small style={{marginLeft:"auto"}}>コピー</Btn>
                 </div>
-                <div className="mono" style={{padding:14,borderRadius:10,fontSize:14,lineHeight:1.7,minHeight:50,wordBreak:"break-all",background:"var(--bg2)",border:"1px solid var(--negBdr)",color:"var(--neg)",userSelect:"all",WebkitUserSelect:"all"}}>{negOut||<span style={{opacity:.35}}>（未選択）</span>}</div>
+                <div className="mono" onDoubleClick={()=>copyText(negOut,"ネガティブ")} title="ダブルクリックでコピー" style={{padding:14,borderRadius:10,fontSize:14,lineHeight:1.7,minHeight:50,wordBreak:"break-all",background:"var(--bg2)",border:"1px solid var(--negBdr)",color:"var(--neg)",userSelect:"all",WebkitUserSelect:"all",cursor:negOut?"pointer":"default"}}>{negOut||<span style={{opacity:.35}}>（未選択）</span>}</div>
               </div>
 
-              <div style={{background:"var(--bg2)",borderRadius:12,padding:16,marginBottom:24,border:"1px solid var(--goldBdr)"}}>
+              {/* Save section */}
+              <div style={{background:"var(--bg2)",borderRadius:12,padding:16,marginBottom:18,border:"1px solid var(--goldBdr)"}}>
                 <div style={{fontSize:15,fontWeight:600,marginBottom:10,color:"var(--gold)"}}>★ 完成プロンプトとして保存</div>
+                <div style={{display:"flex",gap:8,marginBottom:8,flexWrap:"wrap",alignItems:"center"}}>
+                  <span style={{fontSize:13,color:"var(--dim)"}}>カテゴリ:</span>
+                  <select value={saveCatId} onChange={e=>setSaveCatId(e.target.value)} style={{width:"auto",minWidth:160,fontSize:14}}>
+                    {sortedSavedCats.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
                 <div style={{display:"flex",gap:8}}>
                   <input value={saveName} onChange={e=>setSaveName(e.target.value)} placeholder="保存名（空欄で自動命名）"/>
                   <Btn on={saveOutput} disabled={!posOut&&!negOut} bg="var(--goldBdr)" color="#fff" border="none">保存</Btn>
                 </div>
               </div>
 
+              {/* Saved category management */}
+              <div style={{background:"var(--bg2)",borderRadius:12,padding:16,marginBottom:18,border:"1px solid var(--bdr)"}}>
+                <div style={{fontSize:15,fontWeight:600,marginBottom:10}}>完成プロンプト カテゴリ管理</div>
+                <div style={{display:"flex",gap:8,marginBottom:12}}>
+                  <input value={newSavedCatName} onChange={e=>setNewSavedCatName(e.target.value)}
+                    onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();addSavedCat()}}}
+                    placeholder="新しいカテゴリ名"/>
+                  <Btn on={addSavedCat} bg="var(--acc)" color="#000" border="none">追加</Btn>
+                </div>
+                <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                  {sortedSavedCats.map((c,idx)=>(
+                    <div key={c.id} style={{display:"flex",alignItems:"center",gap:6,padding:"8px 12px",borderRadius:8,background:"var(--bg0)",flexWrap:"wrap"}}>
+                      {renameSavedCatId===c.id?(
+                        <>
+                          <input value={renameSavedCatName} onChange={e=>setRenameSavedCatName(e.target.value)} style={{flex:1,fontSize:14}}/>
+                          <Btn on={()=>renameSavedCategory(c.id)} bg="var(--acc)" color="#000" border="none" small>保存</Btn>
+                          <Btn on={()=>setRenameSavedCatId(null)} small>取消</Btn>
+                        </>
+                      ):(
+                        <>
+                          <Btn on={()=>moveSavedCat(c.id,-1)} disabled={idx===0} small style={{padding:"6px 8px"}}>↑</Btn>
+                          <Btn on={()=>moveSavedCat(c.id,1)} disabled={idx===sortedSavedCats.length-1} small style={{padding:"6px 8px"}}>↓</Btn>
+                          <span style={{flex:1,fontSize:14,minWidth:100}}>{c.name}</span>
+                          <span style={{fontSize:12,color:"var(--dim)"}}>{saved.filter(s=>s.savedCatId===c.id).length}件</span>
+                          <Btn on={()=>{setRenameSavedCatId(c.id);setRenameSavedCatName(c.name)}} small>名前変更</Btn>
+                          <Btn on={()=>{if(c.id==="default"){flash("既定カテゴリは削除できません");return}if(confirm(`「${c.name}」を削除しますか？\n中のプロンプトは未分類に移動します。`))deleteSavedCat(c.id)}} disabled={c.id==="default"} bg="var(--negBg)" color="var(--neg)" border="1px solid var(--negBdr)" small>削除</Btn>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Saved prompts grouped by category */}
               <div style={{marginBottom:20}}>
-                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,flexWrap:"wrap"}}>
-                  <span style={{fontSize:15,fontWeight:600}}>保存済みプロンプト ({saved.length})</span>
-                  <div style={{marginLeft:"auto",display:"flex",gap:6}}>
-                    <Btn on={exportSaved} disabled={!saved.length} small>📥 書き出し</Btn>
-                    <label style={{padding:"6px 12px",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer",background:"var(--bg2)",color:"var(--dim)",border:"1px solid var(--bdr)",display:"inline-flex",alignItems:"center"}}>
-                      📤 読み込み
-                      <input type="file" accept=".json" style={{display:"none"}} onChange={importSaved}/>
-                    </label>
-                  </div>
-                </div>
+                <div style={{fontSize:15,fontWeight:600,marginBottom:10}}>保存済みプロンプト ({saved.length})</div>
                 {saved.length===0&&<span style={{fontSize:14,color:"var(--dim)"}}>保存されたプロンプトはまだありません</span>}
-                <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                  {saved.map(s=>{
-                    const open=expandedSaved===s.id;
-                    return(
-                      <div key={s.id} style={{background:"var(--bg2)",borderRadius:10,border:"1px solid var(--bdr)",overflow:"hidden"}}>
-                        <div onClick={()=>setExpandedSaved(open?null:s.id)} style={{display:"flex",alignItems:"center",gap:8,padding:"12px 14px",cursor:"pointer"}}>
-                          <span style={{fontSize:14,color:"var(--gold)",transform:open?"rotate(90deg)":"rotate(0)",transition:"transform .15s",flexShrink:0}}>▶</span>
-                          <span style={{fontSize:14,fontWeight:600,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</span>
-                          <span style={{fontSize:12,color:"var(--dim)",flexShrink:0}}>{s.date}</span>
-                        </div>
-                        {open&&(
-                          <div className="fi" style={{padding:"0 14px 14px",display:"flex",flexDirection:"column",gap:10}}>
-                            {s.pos&&(<div>
-                              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
-                                <span style={{fontSize:13,fontWeight:600,color:"var(--pos)"}}>⊕ Positive</span>
-                                <Btn on={()=>copyText(s.pos,"ポジティブ")} bg="var(--posBg)" color="var(--pos)" border="1px solid var(--posBdr)" small>コピー</Btn>
+                {sortedSavedCats.map(cat=>{
+                  const items=saved.filter(s=>s.savedCatId===cat.id);
+                  if(items.length===0) return null;
+                  return (
+                    <div key={cat.id} style={{marginBottom:14}}>
+                      <div style={{fontSize:13,fontWeight:600,color:"var(--gold)",marginBottom:6,padding:"4px 8px",background:"var(--goldBg)",borderRadius:6,display:"inline-block"}}>★ {cat.name} ({items.length})</div>
+                      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                        {items.map(s=>{
+                          const open=expandedSaved===s.id;
+                          return(
+                            <div key={s.id} style={{background:"var(--bg2)",borderRadius:10,border:"1px solid var(--bdr)",overflow:"hidden"}}>
+                              <div onClick={()=>setExpandedSaved(open?null:s.id)} style={{display:"flex",alignItems:"center",gap:8,padding:"12px 14px",cursor:"pointer"}}>
+                                <span style={{fontSize:14,color:"var(--gold)",transform:open?"rotate(90deg)":"rotate(0)",transition:"transform .15s",flexShrink:0}}>▶</span>
+                                <span style={{fontSize:14,fontWeight:600,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</span>
+                                <span style={{fontSize:12,color:"var(--dim)",flexShrink:0}}>{s.date}</span>
                               </div>
-                              <div className="mono" style={{fontSize:13,lineHeight:1.6,padding:"8px 10px",borderRadius:6,background:"var(--bg0)",color:"var(--pos)",wordBreak:"break-all",userSelect:"all",WebkitUserSelect:"all"}}>{s.pos}</div>
-                            </div>)}
-                            {s.neg&&(<div>
-                              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
-                                <span style={{fontSize:13,fontWeight:600,color:"var(--neg)"}}>⊖ Negative</span>
-                                <Btn on={()=>copyText(s.neg,"ネガティブ")} bg="var(--negBg)" color="var(--neg)" border="1px solid var(--negBdr)" small>コピー</Btn>
-                              </div>
-                              <div className="mono" style={{fontSize:13,lineHeight:1.6,padding:"8px 10px",borderRadius:6,background:"var(--bg0)",color:"var(--neg)",wordBreak:"break-all",userSelect:"all",WebkitUserSelect:"all"}}>{s.neg}</div>
-                            </div>)}
-                            <Btn on={()=>{if(confirm(`「${s.name}」を削除しますか？`))deleteSaved(s.id)}} bg="var(--negBg)" color="var(--neg)" border="1px solid var(--negBdr)" small>削除</Btn>
-                          </div>
-                        )}
+                              {open&&(
+                                <div className="fi" style={{padding:"0 14px 14px",display:"flex",flexDirection:"column",gap:10}}>
+                                  {s.pos&&(<div>
+                                    <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+                                      <span style={{fontSize:13,fontWeight:600,color:"var(--pos)"}}>⊕ Positive</span>
+                                      <Btn on={()=>copyText(s.pos,"ポジティブ")} bg="var(--posBg)" color="var(--pos)" border="1px solid var(--posBdr)" small>コピー</Btn>
+                                    </div>
+                                    <div className="mono" onDoubleClick={()=>copyText(s.pos,"ポジティブ")} title="ダブルクリックでコピー" style={{fontSize:13,lineHeight:1.6,padding:"8px 10px",borderRadius:6,background:"var(--bg0)",color:"var(--pos)",wordBreak:"break-all",userSelect:"all",WebkitUserSelect:"all",cursor:"pointer"}}>{s.pos}</div>
+                                  </div>)}
+                                  {s.neg&&(<div>
+                                    <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+                                      <span style={{fontSize:13,fontWeight:600,color:"var(--neg)"}}>⊖ Negative</span>
+                                      <Btn on={()=>copyText(s.neg,"ネガティブ")} bg="var(--negBg)" color="var(--neg)" border="1px solid var(--negBdr)" small>コピー</Btn>
+                                    </div>
+                                    <div className="mono" onDoubleClick={()=>copyText(s.neg,"ネガティブ")} title="ダブルクリックでコピー" style={{fontSize:13,lineHeight:1.6,padding:"8px 10px",borderRadius:6,background:"var(--bg0)",color:"var(--neg)",wordBreak:"break-all",userSelect:"all",WebkitUserSelect:"all",cursor:"pointer"}}>{s.neg}</div>
+                                  </div>)}
+                                  <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                                    <span style={{fontSize:12,color:"var(--dim)"}}>移動先:</span>
+                                    <select value={s.savedCatId} onChange={e=>moveSavedItem(s.id,e.target.value)} style={{width:"auto",minWidth:140,fontSize:13,padding:"6px 10px"}}>
+                                      {sortedSavedCats.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+                                    </select>
+                                    <Btn on={()=>{if(confirm(`「${s.name}」を削除しますか？`))deleteSaved(s.id)}} bg="var(--negBg)" color="var(--neg)" border="1px solid var(--negBdr)" small style={{marginLeft:"auto"}}>削除</Btn>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
-                    );
-                  })}
-                </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -498,16 +837,17 @@ export default function App() {
             {selCount>0&&(
               <>
                 <div style={{display:"flex",flexWrap:"wrap",gap:6,maxHeight:64,overflowY:"auto",marginBottom:6}}>
-                  {Object.entries(sels).map(([id,w])=>{
+                  {Object.entries(sels).map(([id,s])=>{
                     const p=prompts.find(x=>x.id===id);if(!p)return null;
                     return(
                       <div key={id} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"5px 8px",borderRadius:6,fontSize:12,
-                        background:p.neg?"var(--negBg)":"var(--posBg)",border:`1px solid ${p.neg?"var(--negBdr)":"var(--posBdr)"}`,color:p.neg?"var(--neg)":"var(--pos)"}}>
-                        <button onClick={()=>setWeight(id,-1)} style={{background:"none",color:"inherit",fontSize:16,padding:"0 3px",lineHeight:1}}>−</button>
-                        <span className="mono" style={{fontSize:11,minWidth:16,textAlign:"center"}}>{w>0?"+"+w:w}</span>
-                        <button onClick={()=>setWeight(id,1)} style={{background:"none",color:"inherit",fontSize:16,padding:"0 3px",lineHeight:1}}>+</button>
+                        background:s.neg?"var(--negBg)":"var(--posBg)",border:`1px solid ${s.neg?"var(--negBdr)":"var(--posBdr)"}`,color:s.neg?"var(--neg)":"var(--pos)"}}>
+                        <button onClick={()=>setWeight(id,-1)} title="弱める" style={{background:"none",color:"inherit",fontSize:16,padding:"0 3px",lineHeight:1}}>−</button>
+                        <span className="mono" style={{fontSize:11,minWidth:16,textAlign:"center"}}>{s.w>0?"+"+s.w:s.w}</span>
+                        <button onClick={()=>setWeight(id,1)} title="強める" style={{background:"none",color:"inherit",fontSize:16,padding:"0 3px",lineHeight:1}}>+</button>
+                        <button onClick={()=>flipSel(id)} title="ポジ／ネガを切替" style={{background:"none",color:"inherit",fontSize:12,padding:"0 4px",lineHeight:1,fontWeight:700}}>{s.neg?"⊖":"⊕"}</button>
                         <span style={{margin:"0 2px"}}>{p.label}</span>
-                        <button onClick={()=>removeSel(id)} style={{background:"none",color:"inherit",fontSize:16,padding:"0 3px",opacity:.5,lineHeight:1}}>×</button>
+                        <button onClick={()=>removeSel(id)} title="削除" style={{background:"none",color:"inherit",fontSize:16,padding:"0 3px",opacity:.5,lineHeight:1}}>×</button>
                       </div>
                     );
                   })}
