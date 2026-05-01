@@ -1,1 +1,1 @@
-if('serviceWorker' in navigator) {window.addEventListener('load', () => {navigator.serviceWorker.register('/nai-prompt-generator/sw.js', { scope: '/nai-prompt-generator/' })})}
+if('serviceWorker' in navigator) {window.addEventListener('load', () => {navigator.serviceWorker.register('/NAI-prompt-generator/sw.js', { scope: '/NAI-prompt-generator/' })})}
