@@ -20,29 +20,43 @@ const INIT_CATS = [
 ];
 
 const INIT_PROMPTS = [
-  { id: "p1", catId: "char", prompt: "1girl", label: "女の子", tagIds: [] },
-  { id: "p2", catId: "char", prompt: "1boy", label: "男の子", tagIds: [] },
-  { id: "p3", catId: "char", prompt: "blonde hair", label: "金髪", tagIds: [] },
-  { id: "p4", catId: "expr", prompt: "smile", label: "笑顔", tagIds: [] },
-  { id: "p5", catId: "expr", prompt: "crying", label: "泣き", tagIds: [] },
-  { id: "p6", catId: "act", prompt: "standing", label: "立ち", tagIds: [] },
-  { id: "p7", catId: "act", prompt: "jumping", label: "ジャンプ", tagIds: [] },
-  { id: "p8", catId: "outfit", prompt: "school uniform", label: "制服", tagIds: [] },
-  { id: "p9", catId: "outfit", prompt: "dress", label: "ドレス", tagIds: [] },
-  { id: "p10", catId: "place", prompt: "classroom", label: "教室", tagIds: [] },
-  { id: "p11", catId: "place", prompt: "forest", label: "森", tagIds: [] },
-  { id: "p12", catId: "comp", prompt: "close-up", label: "アップ", tagIds: [] },
-  { id: "p13", catId: "comp", prompt: "full body", label: "全身", tagIds: [] },
-  { id: "p14", catId: "light", prompt: "dramatic lighting", label: "ドラマチック", tagIds: [] },
-  { id: "p15", catId: "quality", prompt: "masterpiece", label: "傑作", tagIds: [] },
-  { id: "p16", catId: "quality", prompt: "best quality", label: "最高品質", tagIds: [] },
-  { id: "p17", catId: "quality", prompt: "lowres", label: "低解像度", tagIds: [] },
-  { id: "p18", catId: "quality", prompt: "bad anatomy", label: "破綻", tagIds: [] },
+  { id: "p1", catId: "char", prompt: "1girl", label: "女の子", tagIds: [], order: 0 },
+  { id: "p2", catId: "char", prompt: "1boy", label: "男の子", tagIds: [], order: 1 },
+  { id: "p3", catId: "char", prompt: "blonde hair", label: "金髪", tagIds: [], order: 2 },
+  { id: "p4", catId: "expr", prompt: "smile", label: "笑顔", tagIds: [], order: 0 },
+  { id: "p5", catId: "expr", prompt: "crying", label: "泣き", tagIds: [], order: 1 },
+  { id: "p6", catId: "act", prompt: "standing", label: "立ち", tagIds: [], order: 0 },
+  { id: "p7", catId: "act", prompt: "jumping", label: "ジャンプ", tagIds: [], order: 1 },
+  { id: "p8", catId: "outfit", prompt: "school uniform", label: "制服", tagIds: [], order: 0 },
+  { id: "p9", catId: "outfit", prompt: "dress", label: "ドレス", tagIds: [], order: 1 },
+  { id: "p10", catId: "place", prompt: "classroom", label: "教室", tagIds: [], order: 0 },
+  { id: "p11", catId: "place", prompt: "forest", label: "森", tagIds: [], order: 1 },
+  { id: "p12", catId: "comp", prompt: "close-up", label: "アップ", tagIds: [], order: 0 },
+  { id: "p13", catId: "comp", prompt: "full body", label: "全身", tagIds: [], order: 1 },
+  { id: "p14", catId: "light", prompt: "dramatic lighting", label: "ドラマチック", tagIds: [], order: 0 },
+  { id: "p15", catId: "quality", prompt: "masterpiece", label: "傑作", tagIds: [], order: 0 },
+  { id: "p16", catId: "quality", prompt: "best quality", label: "最高品質", tagIds: [], order: 1 },
+  { id: "p17", catId: "quality", prompt: "lowres", label: "低解像度", tagIds: [], order: 2 },
+  { id: "p18", catId: "quality", prompt: "bad anatomy", label: "破綻", tagIds: [], order: 3 },
 ];
 
 const INIT_SAVED_CATS = [
   { id: "default", name: "未分類", order: 0 },
 ];
+
+const PRESET_COLORS = [
+  { hex: "", name: "デフォルト" },
+  { hex: "#38bdf8", name: "ブルー" },
+  { hex: "#34d399", name: "グリーン" },
+  { hex: "#fbbf24", name: "ゴールド" },
+  { hex: "#fb7185", name: "ピンク" },
+  { hex: "#a78bfa", name: "パープル" },
+  { hex: "#22d3ee", name: "シアン" },
+  { hex: "#f97316", name: "オレンジ" },
+  { hex: "#94a3b8", name: "グレー" },
+];
+
+const catColor = (c) => c?.color || "var(--acc)";
 
 const wrap = (text, w) => {
   let r = text;
@@ -57,6 +71,15 @@ const SK_OLD = "nai-pg-v2";
 const SK_SAVED_OLD = "nai-pg-saved-v2";
 
 const sortByOrder = (arr) => [...arr].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+const assignPromptOrders = (arr) => {
+  const counters = {};
+  return arr.map(p => {
+    if (typeof p.order === "number") return p;
+    const c = counters[p.catId] = (counters[p.catId] ?? -1) + 1;
+    return { ...p, order: c };
+  });
+};
 
 const Btn = ({ children, on, bg, color, border, small, disabled, style, ...rest }) => (
   <button disabled={disabled} onClick={on} style={{
@@ -106,7 +129,8 @@ export default function App() {
 
   /* ── output state ── */
   const [saveName, setSaveName] = useState("");
-  const [saveCatId, setSaveCatId] = useState("default");
+  const [savePosCatId, setSavePosCatId] = useState("default");
+  const [saveNegCatId, setSaveNegCatId] = useState("default");
   const [expandedSaved, setExpandedSaved] = useState(null);
   const [newSavedCatName, setNewSavedCatName] = useState("");
   const [renameSavedCatId, setRenameSavedCatId] = useState(null);
@@ -124,8 +148,8 @@ export default function App() {
         const r = await storage.get(SK);
         if (r?.value) {
           const d = JSON.parse(r.value);
-          if (Array.isArray(d.cats) && d.cats.length) setCats(d.cats.map(c => ({ ...c, tags: c.tags || [] })));
-          if (Array.isArray(d.prompts)) setPrompts(d.prompts.map(p => ({ ...p, tagIds: p.tagIds || [] })));
+          if (Array.isArray(d.cats) && d.cats.length) setCats(d.cats.map(c => ({ ...c, tags: c.tags || [], color: c.color || "" })));
+          if (Array.isArray(d.prompts)) setPrompts(assignPromptOrders(d.prompts.map(p => ({ ...p, tagIds: p.tagIds || [] }))));
           if (d.sels && typeof d.sels === "object") setSels(d.sels);
         } else {
           // migrate from v2
@@ -134,8 +158,8 @@ export default function App() {
             const o = JSON.parse(old.value);
             const oldCats = Array.isArray(o.cats) ? o.cats : [];
             const oldPrompts = Array.isArray(o.prompts) ? o.prompts : [];
-            const newCats = oldCats.map(c => ({ ...c, tags: c.tags || [] }));
-            const newPrompts = oldPrompts.map(({ neg, ...rest }) => ({ ...rest, tagIds: rest.tagIds || [] }));
+            const newCats = oldCats.map(c => ({ ...c, tags: c.tags || [], color: c.color || "" }));
+            const newPrompts = assignPromptOrders(oldPrompts.map(({ neg, ...rest }) => ({ ...rest, tagIds: rest.tagIds || [] })));
             const newSels = {};
             for (const [id, val] of Object.entries(o.sels || {})) {
               if (val && typeof val === "object" && "w" in val) newSels[id] = val;
@@ -197,16 +221,43 @@ export default function App() {
   /* ── prompt CRUD ── */
   const addPromptItem = () => {
     if (!newPrompt.trim()) return;
-    setPrompts(p => [...p, { id: uid(), catId: manageCat, prompt: newPrompt.trim(), label: newLabel.trim() || newPrompt.trim(), tagIds: [...newPromptTagIds] }]);
+    setPrompts(p => {
+      const order = p.filter(x => x.catId === manageCat).length;
+      return [...p, { id: uid(), catId: manageCat, prompt: newPrompt.trim(), label: newLabel.trim() || newPrompt.trim(), tagIds: [...newPromptTagIds], order }];
+    });
     setNewPrompt(""); setNewLabel(""); setNewPromptTagIds([]); setNewPromptTagInput("");
     flash("プロンプト追加完了");
   };
   const startEdit = (p) => { setEditId(p.id); setEditPrompt(p.prompt); setEditLabel(p.label); setEditTagIds([...(p.tagIds || [])]); setEditTagInput(""); };
   const saveEdit = (id) => { setPrompts(p => p.map(x => x.id === id ? { ...x, prompt: editPrompt, label: editLabel, tagIds: [...editTagIds] } : x)); setEditId(null); };
-  const deletePrompt = (id) => { setPrompts(p => p.filter(x => x.id !== id)); setSels(p => { const n = { ...p }; delete n[id]; return n; }); };
+  const deletePrompt = (id) => {
+    setPrompts(p => {
+      const target = p.find(x => x.id === id);
+      if (!target) return p;
+      const without = p.filter(x => x.id !== id);
+      // reindex same-cat orders
+      const sameCat = sortByOrder(without.filter(x => x.catId === target.catId)).map((x, i) => ({ ...x, order: i }));
+      const map = new Map(sameCat.map(x => [x.id, x]));
+      return without.map(x => map.get(x.id) || x);
+    });
+    setSels(p => { const n = { ...p }; delete n[id]; return n; });
+  };
+  const movePromptItem = (id, dir) => setPrompts(p => {
+    const target = p.find(x => x.id === id);
+    if (!target) return p;
+    const sameCat = sortByOrder(p.filter(x => x.catId === target.catId));
+    const idx = sameCat.findIndex(x => x.id === id);
+    const j = idx + dir;
+    if (j < 0 || j >= sameCat.length) return p;
+    [sameCat[idx], sameCat[j]] = [sameCat[j], sameCat[idx]];
+    const reordered = sameCat.map((x, i) => ({ ...x, order: i }));
+    const map = new Map(reordered.map(x => [x.id, x]));
+    return p.map(x => map.get(x.id) || x);
+  });
 
   /* ── category CRUD + reorder ── */
-  const addCategory = () => { if (!newCatName.trim()) return; setCats(p => [...p, { id: uid(), name: newCatName.trim(), order: p.length, tags: [] }]); setNewCatName(""); };
+  const addCategory = () => { if (!newCatName.trim()) return; setCats(p => [...p, { id: uid(), name: newCatName.trim(), order: p.length, tags: [], color: "" }]); setNewCatName(""); };
+  const setCatColor = (id, color) => setCats(p => p.map(c => c.id === id ? { ...c, color } : c));
   const renameCategory = (id) => { if (!renameCatName.trim()) return; setCats(p => p.map(c => c.id === id ? { ...c, name: renameCatName.trim() } : c)); setRenameCatId(null); };
   const deleteCategory = (id) => {
     const ids = prompts.filter(x => x.catId === id).map(x => x.id);
@@ -312,13 +363,23 @@ export default function App() {
   const negOut = buildOut(true);
   const selCount = Object.keys(sels).length;
 
-  /* ── save completed ── */
+  /* ── save completed (pos/neg can target different saved categories) ── */
   const saveOutput = () => {
     if (!posOut && !negOut) { flash("出力するプロンプトがありません"); return; }
-    const name = saveName.trim() || `プロンプト_${saved.length + 1}`;
-    const catId = sortedSavedCats.find(c => c.id === saveCatId) ? saveCatId : "default";
-    setSaved(p => [{ id: uid(), savedCatId: catId, name, pos: posOut, neg: negOut, date: now() }, ...p]);
-    setSaveName(""); flash(`「${name}」を保存しました`);
+    const validate = (id) => sortedSavedCats.find(c => c.id === id) ? id : "default";
+    const pCat = validate(savePosCatId);
+    const nCat = validate(saveNegCatId);
+    const baseName = saveName.trim() || `プロンプト_${saved.length + 1}`;
+    const ts = now();
+    const items = [];
+    if (posOut && negOut && pCat === nCat) {
+      items.push({ id: uid(), savedCatId: pCat, name: baseName, pos: posOut, neg: negOut, date: ts });
+    } else {
+      if (posOut) items.push({ id: uid(), savedCatId: pCat, name: posOut && negOut ? `${baseName}_⊕` : baseName, pos: posOut, neg: "", date: ts });
+      if (negOut) items.push({ id: uid(), savedCatId: nCat, name: posOut && negOut ? `${baseName}_⊖` : baseName, pos: "", neg: negOut, date: ts });
+    }
+    setSaved(p => [...items, ...p]);
+    setSaveName(""); flash(items.length === 1 ? `「${items[0].name}」を保存しました` : `${items.length}件保存しました`);
   };
   const deleteSaved = (id) => setSaved(p => p.filter(x => x.id !== id));
 
@@ -349,10 +410,60 @@ export default function App() {
     const f = e.target.files?.[0]; if (!f) return;
     try {
       const d = JSON.parse(await f.text());
-      if (Array.isArray(d.cats)) setCats(d.cats.map(c => ({ ...c, tags: c.tags || [] })));
-      if (Array.isArray(d.prompts)) setPrompts(d.prompts.map(({ neg, ...p }) => ({ ...p, tagIds: p.tagIds || [] })));
+      if (Array.isArray(d.cats)) setCats(d.cats.map(c => ({ ...c, tags: c.tags || [], color: c.color || "" })));
+      if (Array.isArray(d.prompts)) setPrompts(assignPromptOrders(d.prompts.map(({ neg, ...p }) => ({ ...p, tagIds: p.tagIds || [] }))));
       setSels({});
-      flash(`インポート完了（${(d.prompts || []).length}件）`);
+      flash(`置換完了（${(d.prompts || []).length}件）`);
+    } catch { flash("読み込みエラー"); }
+    e.target.value = "";
+  };
+
+  /* ── merge import: dedup by (catName + prompt text) ── */
+  const importListMerge = async (e) => {
+    const f = e.target.files?.[0]; if (!f) return;
+    try {
+      const d = JSON.parse(await f.text());
+      const incomingCats = Array.isArray(d.cats) ? d.cats : [];
+      const incomingPrompts = Array.isArray(d.prompts) ? d.prompts.map(({ neg, ...p }) => p) : [];
+
+      let nextCats = cats.map(c => ({ ...c, tags: [...(c.tags || [])] }));
+      const catMap = {}; // incomingCatId -> resolvedCatId
+      const tagMap = {}; // `${incomingCatId}:${incomingTagId}` -> resolvedTagId
+
+      for (const ic of incomingCats) {
+        let resolved = nextCats.find(c => c.name === ic.name);
+        if (!resolved) {
+          resolved = { id: uid(), name: ic.name, order: nextCats.length, tags: [], color: ic.color || "" };
+          nextCats = [...nextCats, resolved];
+        }
+        catMap[ic.id] = resolved.id;
+        for (const it of (ic.tags || [])) {
+          let rt = (resolved.tags || []).find(t => t.name === it.name);
+          if (!rt) {
+            rt = { id: uid(), name: it.name };
+            resolved.tags = [...(resolved.tags || []), rt];
+            nextCats = nextCats.map(c => c.id === resolved.id ? resolved : c);
+          }
+          tagMap[`${ic.id}:${it.id}`] = rt.id;
+        }
+      }
+
+      let nextPrompts = [...prompts];
+      let added = 0, skipped = 0;
+      for (const ip of incomingPrompts) {
+        const resolvedCatId = catMap[ip.catId] || ip.catId;
+        if (!nextCats.find(c => c.id === resolvedCatId)) { skipped++; continue; }
+        const dup = nextPrompts.find(x => x.catId === resolvedCatId && x.prompt === ip.prompt && x.label === ip.label);
+        if (dup) { skipped++; continue; }
+        const resolvedTagIds = (ip.tagIds || []).map(tid => tagMap[`${ip.catId}:${tid}`]).filter(Boolean);
+        const order = nextPrompts.filter(x => x.catId === resolvedCatId).length;
+        nextPrompts = [...nextPrompts, { id: uid(), catId: resolvedCatId, prompt: ip.prompt, label: ip.label, tagIds: resolvedTagIds, order }];
+        added++;
+      }
+
+      setCats(nextCats);
+      setPrompts(nextPrompts);
+      flash(`マージ完了（追加${added}件、重複スキップ${skipped}件）`);
     } catch { flash("読み込みエラー"); }
     e.target.value = "";
   };
@@ -360,7 +471,7 @@ export default function App() {
   /* ── filtered ── */
   const filteredSelect = useMemo(() => {
     if (!activeCatObj) return [];
-    return prompts.filter(p => {
+    return sortByOrder(prompts.filter(p => {
       if (p.catId !== activeCatObj.id) return false;
       if (tagFilter.length && !tagFilter.some(tid => (p.tagIds || []).includes(tid))) return false;
       if (search) {
@@ -368,19 +479,19 @@ export default function App() {
         if (!p.prompt.toLowerCase().includes(q) && !p.label.toLowerCase().includes(q)) return false;
       }
       return true;
-    });
+    }));
   }, [prompts, activeCatObj, tagFilter, search]);
 
   const filteredManage = useMemo(() => {
     if (!manageCatObj) return [];
-    return prompts.filter(p => {
+    return sortByOrder(prompts.filter(p => {
       if (p.catId !== manageCatObj.id) return false;
       if (search) {
         const q = search.toLowerCase();
         if (!p.prompt.toLowerCase().includes(q) && !p.label.toLowerCase().includes(q)) return false;
       }
       return true;
-    });
+    }));
   }, [prompts, manageCatObj, search]);
 
   const tagCount = (catId, tagId) => prompts.filter(p => p.catId === catId && (p.tagIds || []).includes(tagId)).length;
@@ -445,11 +556,15 @@ export default function App() {
                 {sortedCats.map((c)=>{
                   const cnt=prompts.filter(p=>p.catId===c.id&&sels[p.id]).length;
                   const a=activeCat===c.id;
+                  const col=catColor(c);
                   return(<button key={c.id} onClick={()=>{setActiveCat(c.id);setSearch("");setTagFilter([])}} style={{
-                    padding:"8px 16px",borderRadius:20,fontSize:14,fontWeight:500,whiteSpace:"nowrap",
-                    background:a?"var(--accDim)":"var(--bg2)",color:a?"var(--acc)":"var(--dim)",
-                    border:a?"1px solid var(--acc)":"1px solid var(--bdr)",
-                  }}>{c.name}{cnt>0&&<span style={{marginLeft:5,fontSize:11,opacity:.7}}>({cnt})</span>}</button>);
+                    padding:"8px 16px",borderRadius:20,fontSize:14,fontWeight:500,whiteSpace:"nowrap",display:"inline-flex",alignItems:"center",gap:6,
+                    background:a?"var(--accDim)":"var(--bg2)",color:a?col:"var(--dim)",
+                    border:a?`1px solid ${col}`:"1px solid var(--bdr)",
+                  }}>
+                    {c.color&&<span style={{display:"inline-block",width:8,height:8,borderRadius:"50%",background:c.color,flexShrink:0}}/>}
+                    {c.name}{cnt>0&&<span style={{marginLeft:2,fontSize:11,opacity:.7}}>({cnt})</span>}
+                  </button>);
                 })}
               </div>
 
@@ -501,6 +616,7 @@ export default function App() {
                       border:sel?`2px solid ${sel.neg?"var(--negBdr)":"var(--posBdr)"}`:"1px solid var(--bdr)",
                       background:sel?(sel.neg?"var(--negBg)":"var(--posBg)"):"var(--bg2)",
                       color:sel?(sel.neg?"var(--neg)":"var(--pos)"):"var(--txt)",
+                      borderLeft:activeCatObj?.color?`4px solid ${activeCatObj.color}`:undefined,
                       display:"inline-flex",alignItems:"center",gap:6,
                   }}>
                     <span style={{fontSize:12,opacity:.6}}>{sel?(sel.neg?"⊖":"⊕"):"·"}</span>
@@ -575,10 +691,11 @@ export default function App() {
                 <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="検索..." style={{marginBottom:8}}/>
                 <div style={{display:"flex",flexDirection:"column",gap:5,maxHeight:400,overflowY:"auto"}}>
                   {filteredManage.length===0&&<span style={{color:"var(--dim)",fontSize:14}}>プロンプトなし</span>}
-                  {filteredManage.map(p=>{
+                  {filteredManage.map((p,idx)=>{
                     const tagNames=(p.tagIds||[]).map(tid=>(manageCatObj?.tags||[]).find(t=>t.id===tid)?.name).filter(Boolean);
+                    const reorderDisabled=!!search;
                     return (
-                    <div key={p.id} style={{display:"flex",flexDirection:"column",gap:6,padding:"10px 12px",borderRadius:8,background:"var(--bg2)",borderLeft:"3px solid var(--accDim)"}}>
+                    <div key={p.id} style={{display:"flex",flexDirection:"column",gap:6,padding:"10px 12px",borderRadius:8,background:"var(--bg2)",borderLeft:`3px solid ${manageCatObj?.color||"var(--accDim)"}`}}>
                       {editId===p.id?(
                         <>
                           <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
@@ -611,6 +728,8 @@ export default function App() {
                         </>
                       ):(
                         <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                          <Btn on={()=>movePromptItem(p.id,-1)} disabled={reorderDisabled||idx===0} small style={{padding:"4px 8px"}} title={reorderDisabled?"検索中は並び替え不可":"上へ"}>↑</Btn>
+                          <Btn on={()=>movePromptItem(p.id,1)} disabled={reorderDisabled||idx===filteredManage.length-1} small style={{padding:"4px 8px"}} title={reorderDisabled?"検索中は並び替え不可":"下へ"}>↓</Btn>
                           <span className="mono" style={{fontSize:14,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis"}}>{p.prompt}</span>
                           <span style={{fontSize:13,color:"var(--dim)",flexShrink:0}}>{p.label}</span>
                           {tagNames.length>0&&<span style={{fontSize:11,color:"var(--acc)",opacity:.7}}>{tagNames.map(n=>"#"+n).join(" ")}</span>}
@@ -633,21 +752,37 @@ export default function App() {
                 </div>
                 <div style={{display:"flex",flexDirection:"column",gap:5}}>
                   {sortedCats.map((c,idx)=>(
-                    <div key={c.id} style={{display:"flex",alignItems:"center",gap:6,padding:"8px 12px",borderRadius:8,background:"var(--bg0)",flexWrap:"wrap"}}>
+                    <div key={c.id} style={{display:"flex",flexDirection:"column",gap:6,padding:"8px 12px",borderRadius:8,background:"var(--bg0)",borderLeft:c.color?`3px solid ${c.color}`:"3px solid transparent"}}>
                       {renameCatId===c.id?(
-                        <>
+                        <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
                           <input value={renameCatName} onChange={e=>setRenameCatName(e.target.value)} style={{flex:1,fontSize:14}}/>
                           <Btn on={()=>renameCategory(c.id)} bg="var(--acc)" color="#000" border="none" small>保存</Btn>
                           <Btn on={()=>setRenameCatId(null)} small>取消</Btn>
-                        </>
+                        </div>
                       ):(
                         <>
-                          <Btn on={()=>moveCat(c.id,-1)} disabled={idx===0} small style={{padding:"6px 8px"}}>↑</Btn>
-                          <Btn on={()=>moveCat(c.id,1)} disabled={idx===sortedCats.length-1} small style={{padding:"6px 8px"}}>↓</Btn>
-                          <span style={{flex:1,fontSize:14,minWidth:120}}>{c.name}</span>
-                          <span style={{fontSize:12,color:"var(--dim)"}}>{prompts.filter(p=>p.catId===c.id).length}件 / タグ{(c.tags||[]).length}</span>
-                          <Btn on={()=>{setRenameCatId(c.id);setRenameCatName(c.name)}} small>名前変更</Btn>
-                          <Btn on={()=>{if(confirm(`「${c.name}」と中のプロンプトを全削除しますか？`))deleteCategory(c.id)}} bg="var(--negBg)" color="var(--neg)" border="1px solid var(--negBdr)" small>削除</Btn>
+                          <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                            <Btn on={()=>moveCat(c.id,-1)} disabled={idx===0} small style={{padding:"6px 8px"}}>↑</Btn>
+                            <Btn on={()=>moveCat(c.id,1)} disabled={idx===sortedCats.length-1} small style={{padding:"6px 8px"}}>↓</Btn>
+                            <span style={{flex:1,fontSize:14,minWidth:120,display:"inline-flex",alignItems:"center",gap:6}}>
+                              {c.color&&<span style={{display:"inline-block",width:10,height:10,borderRadius:"50%",background:c.color}}/>}
+                              {c.name}
+                            </span>
+                            <span style={{fontSize:12,color:"var(--dim)"}}>{prompts.filter(p=>p.catId===c.id).length}件 / タグ{(c.tags||[]).length}</span>
+                            <Btn on={()=>{setRenameCatId(c.id);setRenameCatName(c.name)}} small>名前変更</Btn>
+                            <Btn on={()=>{if(confirm(`「${c.name}」と中のプロンプトを全削除しますか？`))deleteCategory(c.id)}} bg="var(--negBg)" color="var(--neg)" border="1px solid var(--negBdr)" small>削除</Btn>
+                          </div>
+                          <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                            <span style={{fontSize:11,color:"var(--dim)"}}>色:</span>
+                            {PRESET_COLORS.map(pc=>(
+                              <button key={pc.hex||"none"} onClick={()=>setCatColor(c.id,pc.hex)} title={pc.name} style={{
+                                width:22,height:22,borderRadius:"50%",cursor:"pointer",
+                                background:pc.hex||"transparent",
+                                border:(c.color||"")===pc.hex?"2px solid var(--txt)":"1px solid var(--bdr)",
+                                position:"relative",
+                              }}>{!pc.hex&&<span style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,color:"var(--dim)"}}>×</span>}</button>
+                            ))}
+                          </div>
                         </>
                       )}
                     </div>
@@ -695,11 +830,18 @@ export default function App() {
                 <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                   <Btn on={exportList}>📥 書き出し (JSON)</Btn>
                   <label style={{padding:"10px 18px",borderRadius:8,fontSize:14,fontWeight:600,cursor:"pointer",background:"var(--bg2)",color:"var(--dim)",border:"1px solid var(--bdr)",display:"inline-flex",alignItems:"center"}}>
-                    📤 読み込み (JSON)
+                    📤 置換読み込み
                     <input type="file" accept=".json" style={{display:"none"}} onChange={importList}/>
                   </label>
+                  <label style={{padding:"10px 18px",borderRadius:8,fontSize:14,fontWeight:600,cursor:"pointer",background:"var(--accDim)",color:"var(--acc)",border:"1px solid var(--acc)",display:"inline-flex",alignItems:"center"}}>
+                    ➕ マージ読み込み
+                    <input type="file" accept=".json" style={{display:"none"}} onChange={importListMerge}/>
+                  </label>
                 </div>
-                <div style={{fontSize:12,color:"var(--dim)",marginTop:8}}>読み込むと現在のデータが置き換わります</div>
+                <div style={{fontSize:12,color:"var(--dim)",marginTop:8}}>
+                  ・置換: 現在のデータが完全に置き換わります<br/>
+                  ・マージ: 既存に追加。同名カテゴリ／タグは統合、同じ英文＋表示名のプロンプトはスキップします
+                </div>
               </div>
             </div>
           )}
@@ -725,11 +867,20 @@ export default function App() {
               {/* Save section */}
               <div style={{background:"var(--bg2)",borderRadius:12,padding:16,marginBottom:18,border:"1px solid var(--goldBdr)"}}>
                 <div style={{fontSize:15,fontWeight:600,marginBottom:10,color:"var(--gold)"}}>★ 完成プロンプトとして保存</div>
-                <div style={{display:"flex",gap:8,marginBottom:8,flexWrap:"wrap",alignItems:"center"}}>
-                  <span style={{fontSize:13,color:"var(--dim)"}}>カテゴリ:</span>
-                  <select value={saveCatId} onChange={e=>setSaveCatId(e.target.value)} style={{width:"auto",minWidth:160,fontSize:14}}>
+                <div style={{display:"flex",gap:8,marginBottom:6,flexWrap:"wrap",alignItems:"center"}}>
+                  <span style={{fontSize:13,color:"var(--pos)",fontWeight:600,minWidth:90}}>⊕ ポジ →</span>
+                  <select value={savePosCatId} onChange={e=>setSavePosCatId(e.target.value)} disabled={!posOut} style={{flex:1,minWidth:140,fontSize:14,opacity:posOut?1:.4}}>
                     {sortedSavedCats.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
+                </div>
+                <div style={{display:"flex",gap:8,marginBottom:6,flexWrap:"wrap",alignItems:"center"}}>
+                  <span style={{fontSize:13,color:"var(--neg)",fontWeight:600,minWidth:90}}>⊖ ネガ →</span>
+                  <select value={saveNegCatId} onChange={e=>setSaveNegCatId(e.target.value)} disabled={!negOut} style={{flex:1,minWidth:140,fontSize:14,opacity:negOut?1:.4}}>
+                    {sortedSavedCats.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+                <div style={{fontSize:11,color:"var(--dim)",marginBottom:8}}>
+                  {posOut&&negOut&&savePosCatId===saveNegCatId?"※ 同じカテゴリなので 1件にまとめて保存します":posOut&&negOut?"※ 別カテゴリなので 2件に分けて保存します":""}
                 </div>
                 <div style={{display:"flex",gap:8}}>
                   <input value={saveName} onChange={e=>setSaveName(e.target.value)} placeholder="保存名（空欄で自動命名）"/>
