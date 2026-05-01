@@ -6,7 +6,7 @@ export default defineConfig({
   // GitHub Pages にデプロイする場合はリポジトリ名を指定
   // 例: base: "/nai-prompt-generator/"
   // カスタムドメインの場合は "/" のまま
-  base: "/nai-prompt-generator/",
+  base: "/NAI-prompt-generator/",
   plugins: [
     react(),
     VitePWA({
