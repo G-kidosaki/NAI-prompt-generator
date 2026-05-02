@@ -41,10 +41,6 @@ const INIT_PROMPTS = [
   { id: "p18", catId: "quality", prompt: "bad anatomy", label: "破綻", tagIds: [], order: 3 },
 ];
 
-const INIT_SAVED_CATS = [
-  { id: "default", name: "未分類", order: 0 },
-];
-
 const PRESET_COLORS = [
   { hex: "", name: "デフォルト" },
   { hex: "#38bdf8", name: "ブルー" },
@@ -83,6 +79,40 @@ const assignPromptOrders = (arr) => {
   });
 };
 
+/**
+ * 旧 SK_SAVED 形式 (savedCats/saved の二段構造) を新形式に移行する。
+ * 旧 saved の各エントリを、対応する savedCat 名と同名のプロンプトカテゴリに
+ * 通常プロンプトとして追加する。同名カテゴリがなければ新規作成。
+ */
+const migrateOldSavedToPrompts = (savedData, cats, prompts) => {
+  if (!savedData || typeof savedData !== "object") return null;
+  const oldSavedCats = Array.isArray(savedData.savedCats) ? savedData.savedCats : [];
+  const oldSaved = Array.isArray(savedData.saved) ? savedData.saved : Array.isArray(savedData) ? savedData : [];
+  if (!oldSaved.length) return null;
+  const newCats = [...cats];
+  const newPrompts = [...prompts];
+  for (const s of oldSaved) {
+    const sc = oldSavedCats.find(c => c.id === s.savedCatId);
+    const fallback = sc?.id === "default" || !sc ? "完成プロンプト" : sc.name;
+    const targetName = fallback;
+    let cat = newCats.find(c => c.name === targetName);
+    if (!cat) {
+      cat = { id: uid(), name: targetName, order: newCats.length, tags: [], color: "" };
+      newCats.push(cat);
+    }
+    const baseName = (s.name || "完成プロンプト").trim();
+    const addEntry = (text, label) => {
+      if (!text) return;
+      const order = newPrompts.filter(p => p.catId === cat.id).length;
+      newPrompts.push({ id: uid(), catId: cat.id, prompt: text, label, tagIds: [], order });
+    };
+    if (s.pos && s.neg) { addEntry(s.pos, `${baseName}_⊕`); addEntry(s.neg, `${baseName}_⊖`); }
+    else if (s.pos) addEntry(s.pos, baseName);
+    else if (s.neg) addEntry(s.neg, baseName);
+  }
+  return { cats: newCats, prompts: newPrompts };
+};
+
 const Btn = ({ children, on, bg, color, border, small, disabled, style, ...rest }) => (
   <button disabled={disabled} onClick={on} style={{
     padding: small ? "6px 12px" : "10px 18px", borderRadius: small ? 6 : 8,
@@ -100,8 +130,6 @@ export default function App() {
   const [cats, setCats] = useState(INIT_CATS);
   const [prompts, setPrompts] = useState(INIT_PROMPTS);
   const [sels, setSels] = useState({}); // { [id]: { w, neg } }
-  const [savedCats, setSavedCats] = useState(INIT_SAVED_CATS);
-  const [saved, setSaved] = useState([]);
   const [loaded, setLoaded] = useState(false);
 
   /* ── ui state ── */
@@ -131,15 +159,12 @@ export default function App() {
 
   /* ── output state ── */
   const [saveName, setSaveName] = useState("");
-  const [savePosCatId, setSavePosCatId] = useState("default");
-  const [saveNegCatId, setSaveNegCatId] = useState("default");
-  const [expandedSaved, setExpandedSaved] = useState(null);
-  const [newSavedCatName, setNewSavedCatName] = useState("");
-  const [renameSavedCatId, setRenameSavedCatId] = useState(null);
-  const [renameSavedCatName, setRenameSavedCatName] = useState("");
+  const [savePosCatId, setSavePosCatId] = useState("");
+  const [saveNegCatId, setSaveNegCatId] = useState("");
 
   /* ── extension settings ── */
   const [sendMode, setSendMode] = useState("overwrite"); // "overwrite" | "append"
+  const [migratedSaved, setMigratedSaved] = useState(false);
   const [sending, setSending] = useState(false);
 
   const [toast, setToast] = useState("");
@@ -150,13 +175,18 @@ export default function App() {
   /* ── persistence + migration ── */
   useEffect(() => {
     (async () => {
+      let curCats = INIT_CATS;
+      let curPrompts = INIT_PROMPTS;
+      let curSels = {};
+      let alreadyMigrated = false;
+
       try {
         const r = await storage.get(SK);
         if (r?.value) {
           const d = JSON.parse(r.value);
-          if (Array.isArray(d.cats) && d.cats.length) setCats(d.cats.map(c => ({ ...c, tags: c.tags || [], color: c.color || "" })));
-          if (Array.isArray(d.prompts)) setPrompts(assignPromptOrders(d.prompts.map(p => ({ ...p, tagIds: p.tagIds || [] }))));
-          if (d.sels && typeof d.sels === "object") setSels(d.sels);
+          if (Array.isArray(d.cats) && d.cats.length) curCats = d.cats.map(c => ({ ...c, tags: c.tags || [], color: c.color || "" }));
+          if (Array.isArray(d.prompts)) curPrompts = assignPromptOrders(d.prompts.map(p => ({ ...p, tagIds: p.tagIds || [] })));
+          if (d.sels && typeof d.sels === "object") curSels = d.sels;
         } else {
           // migrate from v2
           const old = await storage.get(SK_OLD);
@@ -164,8 +194,8 @@ export default function App() {
             const o = JSON.parse(old.value);
             const oldCats = Array.isArray(o.cats) ? o.cats : [];
             const oldPrompts = Array.isArray(o.prompts) ? o.prompts : [];
-            const newCats = oldCats.map(c => ({ ...c, tags: c.tags || [], color: c.color || "" }));
-            const newPrompts = assignPromptOrders(oldPrompts.map(({ neg, ...rest }) => ({ ...rest, tagIds: rest.tagIds || [] })));
+            curCats = oldCats.length ? oldCats.map(c => ({ ...c, tags: c.tags || [], color: c.color || "" })) : curCats;
+            curPrompts = assignPromptOrders(oldPrompts.map(({ neg, ...rest }) => ({ ...rest, tagIds: rest.tagIds || [] })));
             const newSels = {};
             for (const [id, val] of Object.entries(o.sels || {})) {
               if (val && typeof val === "object" && "w" in val) newSels[id] = val;
@@ -174,48 +204,61 @@ export default function App() {
                 newSels[id] = { w: typeof val === "number" ? val : 0, neg: !!op?.neg };
               }
             }
-            if (newCats.length) setCats(newCats);
-            if (newPrompts.length) setPrompts(newPrompts);
-            setSels(newSels);
+            curSels = newSels;
           }
         }
       } catch {}
-      try {
-        const r2 = await storage.get(SK_SAVED);
-        if (r2?.value) {
-          const d2 = JSON.parse(r2.value);
-          if (Array.isArray(d2.savedCats) && d2.savedCats.length) setSavedCats(d2.savedCats);
-          if (Array.isArray(d2.saved)) setSaved(d2.saved.map(s => ({ ...s, savedCatId: s.savedCatId || "default" })));
-        } else {
-          const old2 = await storage.get(SK_SAVED_OLD);
-          if (old2?.value) {
-            const arr = JSON.parse(old2.value);
-            if (Array.isArray(arr)) setSaved(arr.map(s => ({ ...s, savedCatId: "default" })));
-          }
-        }
-      } catch {}
-      setLoaded(true);
+
       try {
         const r3 = await storage.get(SK_SETTINGS);
         if (r3?.value) {
           const s = JSON.parse(r3.value);
           if (s.sendMode === "append" || s.sendMode === "overwrite") setSendMode(s.sendMode);
+          alreadyMigrated = !!s.migratedSaved;
         }
       } catch {}
+
+      // 旧 saved (savedCats/saved) → 既存カテゴリへの一括移行（一度だけ実行）
+      if (!alreadyMigrated) {
+        try {
+          let oldData = null;
+          const r2 = await storage.get(SK_SAVED);
+          if (r2?.value) oldData = JSON.parse(r2.value);
+          else {
+            const old2 = await storage.get(SK_SAVED_OLD);
+            if (old2?.value) oldData = JSON.parse(old2.value);
+          }
+          if (oldData) {
+            const result = migrateOldSavedToPrompts(oldData, curCats, curPrompts);
+            if (result) { curCats = result.cats; curPrompts = result.prompts; }
+          }
+        } catch {}
+        setMigratedSaved(true);
+      }
+
+      setCats(curCats);
+      setPrompts(curPrompts);
+      setSels(curSels);
+      setLoaded(true);
     })();
   }, []);
   useEffect(() => { if (!loaded) return; (async () => { try { await storage.set(SK, JSON.stringify({ cats, prompts, sels })); } catch {} })(); }, [cats, prompts, sels, loaded]);
-  useEffect(() => { if (!loaded) return; (async () => { try { await storage.set(SK_SAVED, JSON.stringify({ savedCats, saved })); } catch {} })(); }, [savedCats, saved, loaded]);
-  useEffect(() => { if (!loaded) return; (async () => { try { await storage.set(SK_SETTINGS, JSON.stringify({ sendMode })); } catch {} })(); }, [sendMode, loaded]);
+  useEffect(() => { if (!loaded) return; (async () => { try { await storage.set(SK_SETTINGS, JSON.stringify({ sendMode, migratedSaved })); } catch {} })(); }, [sendMode, migratedSaved, loaded]);
 
   /* clear stale tag selections when switching manage cat */
   useEffect(() => { setNewPromptTagIds([]); setNewPromptTagInput(""); setEditId(null); }, [manageCat]);
 
   /* ── derived ── */
   const sortedCats = useMemo(() => sortByOrder(cats), [cats]);
-  const sortedSavedCats = useMemo(() => sortByOrder(savedCats), [savedCats]);
   const activeCatObj = useMemo(() => sortedCats.find(c => c.id === activeCat) || sortedCats[0], [sortedCats, activeCat]);
   const manageCatObj = useMemo(() => sortedCats.find(c => c.id === manageCat) || sortedCats[0], [sortedCats, manageCat]);
+
+  /* default save target = first category */
+  useEffect(() => {
+    if (!sortedCats.length) return;
+    if (!sortedCats.find(c => c.id === savePosCatId)) setSavePosCatId(sortedCats[0].id);
+    if (!sortedCats.find(c => c.id === saveNegCatId)) setSaveNegCatId(sortedCats[0].id);
+  }, [sortedCats, savePosCatId, saveNegCatId]);
 
   /* ── selection ops ── */
   const toggleSel = (id) => setSels(p => {
@@ -332,24 +375,6 @@ export default function App() {
     setEditTagInput("");
   };
 
-  /* ── saved category CRUD + reorder ── */
-  const addSavedCat = () => { if (!newSavedCatName.trim()) return; setSavedCats(p => [...p, { id: uid(), name: newSavedCatName.trim(), order: p.length }]); setNewSavedCatName(""); };
-  const renameSavedCategory = (id) => { if (!renameSavedCatName.trim()) return; setSavedCats(p => p.map(c => c.id === id ? { ...c, name: renameSavedCatName.trim() } : c)); setRenameSavedCatId(null); };
-  const deleteSavedCat = (id) => {
-    if (id === "default") { flash("既定カテゴリは削除できません"); return; }
-    setSaved(p => p.map(s => s.savedCatId === id ? { ...s, savedCatId: "default" } : s));
-    setSavedCats(p => sortByOrder(p.filter(c => c.id !== id)).map((c, i) => ({ ...c, order: i })));
-  };
-  const moveSavedCat = (id, dir) => setSavedCats(p => {
-    const sorted = sortByOrder(p);
-    const idx = sorted.findIndex(c => c.id === id);
-    const j = idx + dir;
-    if (idx < 0 || j < 0 || j >= sorted.length) return p;
-    [sorted[idx], sorted[j]] = [sorted[j], sorted[idx]];
-    return sorted.map((c, i) => ({ ...c, order: i }));
-  });
-  const moveSavedItem = (id, savedCatId) => setSaved(p => p.map(s => s.id === id ? { ...s, savedCatId } : s));
-
   /* ── emphasis ── */
   const handleEmphasis = (o, c) => {
     const el = promptRef.current; if (!el) return;
@@ -377,25 +402,40 @@ export default function App() {
   const negOut = buildOut(true);
   const selCount = Object.keys(sels).length;
 
-  /* ── save completed (pos/neg can target different saved categories) ── */
+  /* ── save completed prompts as new entries in chosen prompt categories ── */
   const saveOutput = () => {
     if (!posOut && !negOut) { flash("出力するプロンプトがありません"); return; }
-    const validate = (id) => sortedSavedCats.find(c => c.id === id) ? id : "default";
+    const validate = (id) => sortedCats.find(c => c.id === id) ? id : sortedCats[0]?.id;
     const pCat = validate(savePosCatId);
     const nCat = validate(saveNegCatId);
-    const baseName = saveName.trim() || `プロンプト_${saved.length + 1}`;
-    const ts = now();
-    const items = [];
-    if (posOut && negOut && pCat === nCat) {
-      items.push({ id: uid(), savedCatId: pCat, name: baseName, pos: posOut, neg: negOut, date: ts });
+    if (!pCat && !nCat) { flash("保存先カテゴリがありません"); return; }
+    const baseName = saveName.trim() || `プロンプト_${prompts.length + 1}`;
+    setPrompts(prev => {
+      const next = [...prev];
+      const addEntry = (catId, text, label) => {
+        if (!catId || !text) return;
+        const order = next.filter(x => x.catId === catId).length;
+        next.push({ id: uid(), catId, prompt: text, label, tagIds: [], order });
+      };
+      if (posOut && negOut) {
+        addEntry(pCat, posOut, `${baseName}_⊕`);
+        addEntry(nCat, negOut, `${baseName}_⊖`);
+      } else if (posOut) {
+        addEntry(pCat, posOut, baseName);
+      } else if (negOut) {
+        addEntry(nCat, negOut, baseName);
+      }
+      return next;
+    });
+    setSaveName("");
+    const posCatName = sortedCats.find(c => c.id === pCat)?.name;
+    const negCatName = sortedCats.find(c => c.id === nCat)?.name;
+    if (posOut && negOut) {
+      flash(pCat === nCat ? `「${posCatName}」に 2件追加しました` : `「${posCatName}」と「${negCatName}」に追加しました`);
     } else {
-      if (posOut) items.push({ id: uid(), savedCatId: pCat, name: posOut && negOut ? `${baseName}_⊕` : baseName, pos: posOut, neg: "", date: ts });
-      if (negOut) items.push({ id: uid(), savedCatId: nCat, name: posOut && negOut ? `${baseName}_⊖` : baseName, pos: "", neg: negOut, date: ts });
+      flash(`「${posOut ? posCatName : negCatName}」に追加しました`);
     }
-    setSaved(p => [...items, ...p]);
-    setSaveName(""); flash(items.length === 1 ? `「${items[0].name}」を保存しました` : `${items.length}件保存しました`);
   };
-  const deleteSaved = (id) => setSaved(p => p.filter(x => x.id !== id));
 
   /* ── send to NovelAI (extension only) ── */
   const handleSendToNovelAI = async (override) => {
@@ -411,8 +451,10 @@ export default function App() {
       else if (res?.reason === "NEG_NOT_FOUND") flash("ネガ用 textarea が見つかりません — 「🎯 ネガ要素を選択」をお試しください");
       else flash("送信に失敗しました");
     } catch (e) {
-      if (e?.message === "NOVELAI_TAB_NOT_FOUND") flash("NovelAI Image Generator のタブを開いてください");
-      else flash("送信エラー: " + (e?.message || "unknown"));
+      const m = e?.message || "";
+      if (m === "NOVELAI_TAB_NOT_FOUND") flash("NovelAI Image Generator のタブを開いてください");
+      else if (m === "CONTENT_SCRIPT_NOT_LOADED") flash("NovelAI のタブを再読込してください（拡張インストール後の初回のみ必要です）");
+      else flash("送信エラー: " + m);
     } finally {
       setSending(false);
     }
@@ -426,8 +468,10 @@ export default function App() {
       else if (res?.reason === "NOT_TEXTAREA") flash("textarea を選択してください");
       else flash("選択に失敗しました");
     } catch (e) {
-      if (e?.message === "NOVELAI_TAB_NOT_FOUND") flash("NovelAI のタブを開いてください");
-      else flash("エラー: " + (e?.message || "unknown"));
+      const m = e?.message || "";
+      if (m === "NOVELAI_TAB_NOT_FOUND") flash("NovelAI のタブを開いてください");
+      else if (m === "CONTENT_SCRIPT_NOT_LOADED") flash("NovelAI のタブを再読込してください");
+      else flash("エラー: " + m);
     }
   };
   const handleResetTargets = async () => {
@@ -436,7 +480,9 @@ export default function App() {
       await resetTargets();
       flash("ターゲット設定をリセットしました");
     } catch (e) {
-      if (e?.message === "NOVELAI_TAB_NOT_FOUND") flash("NovelAI のタブを開いてください");
+      const m = e?.message || "";
+      if (m === "NOVELAI_TAB_NOT_FOUND") flash("NovelAI のタブを開いてください");
+      else if (m === "CONTENT_SCRIPT_NOT_LOADED") flash("NovelAI のタブを再読込してください");
     }
   };
 
@@ -951,116 +997,28 @@ export default function App() {
                 </div>
               )}
 
-              {/* Save section */}
+              {/* Save section: 完成プロンプトを既存カテゴリに追加 */}
               <div style={{background:"var(--bg2)",borderRadius:12,padding:16,marginBottom:18,border:"1px solid var(--goldBdr)"}}>
-                <div style={{fontSize:15,fontWeight:600,marginBottom:10,color:"var(--gold)"}}>★ 完成プロンプトとして保存</div>
+                <div style={{fontSize:15,fontWeight:600,marginBottom:10,color:"var(--gold)"}}>★ 完成プロンプトをカテゴリに追加</div>
+                <div style={{fontSize:11,color:"var(--dim)",marginBottom:10}}>
+                  保存先のカテゴリを選んでください。プロンプトリストに新規エントリとして追加され、選択タブから再利用できます。
+                </div>
                 <div style={{display:"flex",gap:8,marginBottom:6,flexWrap:"wrap",alignItems:"center"}}>
                   <span style={{fontSize:13,color:"var(--pos)",fontWeight:600,minWidth:90}}>⊕ ポジ →</span>
                   <select value={savePosCatId} onChange={e=>setSavePosCatId(e.target.value)} disabled={!posOut} style={{flex:1,minWidth:140,fontSize:14,opacity:posOut?1:.4}}>
-                    {sortedSavedCats.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+                    {sortedCats.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 </div>
                 <div style={{display:"flex",gap:8,marginBottom:6,flexWrap:"wrap",alignItems:"center"}}>
                   <span style={{fontSize:13,color:"var(--neg)",fontWeight:600,minWidth:90}}>⊖ ネガ →</span>
                   <select value={saveNegCatId} onChange={e=>setSaveNegCatId(e.target.value)} disabled={!negOut} style={{flex:1,minWidth:140,fontSize:14,opacity:negOut?1:.4}}>
-                    {sortedSavedCats.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+                    {sortedCats.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 </div>
-                <div style={{fontSize:11,color:"var(--dim)",marginBottom:8}}>
-                  {posOut&&negOut&&savePosCatId===saveNegCatId?"※ 同じカテゴリなので 1件にまとめて保存します":posOut&&negOut?"※ 別カテゴリなので 2件に分けて保存します":""}
+                <div style={{display:"flex",gap:8,marginTop:8}}>
+                  <input value={saveName} onChange={e=>setSaveName(e.target.value)} placeholder="表示名（空欄で自動命名）"/>
+                  <Btn on={saveOutput} disabled={!posOut&&!negOut} bg="var(--goldBdr)" color="#fff" border="none">追加</Btn>
                 </div>
-                <div style={{display:"flex",gap:8}}>
-                  <input value={saveName} onChange={e=>setSaveName(e.target.value)} placeholder="保存名（空欄で自動命名）"/>
-                  <Btn on={saveOutput} disabled={!posOut&&!negOut} bg="var(--goldBdr)" color="#fff" border="none">保存</Btn>
-                </div>
-              </div>
-
-              {/* Saved category management */}
-              <div style={{background:"var(--bg2)",borderRadius:12,padding:16,marginBottom:18,border:"1px solid var(--bdr)"}}>
-                <div style={{fontSize:15,fontWeight:600,marginBottom:10}}>完成プロンプト カテゴリ管理</div>
-                <div style={{display:"flex",gap:8,marginBottom:12}}>
-                  <input value={newSavedCatName} onChange={e=>setNewSavedCatName(e.target.value)}
-                    onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();addSavedCat()}}}
-                    placeholder="新しいカテゴリ名"/>
-                  <Btn on={addSavedCat} bg="var(--acc)" color="#000" border="none">追加</Btn>
-                </div>
-                <div style={{display:"flex",flexDirection:"column",gap:5}}>
-                  {sortedSavedCats.map((c,idx)=>(
-                    <div key={c.id} style={{display:"flex",alignItems:"center",gap:6,padding:"8px 12px",borderRadius:8,background:"var(--bg0)",flexWrap:"wrap"}}>
-                      {renameSavedCatId===c.id?(
-                        <>
-                          <input value={renameSavedCatName} onChange={e=>setRenameSavedCatName(e.target.value)} style={{flex:1,fontSize:14}}/>
-                          <Btn on={()=>renameSavedCategory(c.id)} bg="var(--acc)" color="#000" border="none" small>保存</Btn>
-                          <Btn on={()=>setRenameSavedCatId(null)} small>取消</Btn>
-                        </>
-                      ):(
-                        <>
-                          <Btn on={()=>moveSavedCat(c.id,-1)} disabled={idx===0} small style={{padding:"6px 8px"}}>↑</Btn>
-                          <Btn on={()=>moveSavedCat(c.id,1)} disabled={idx===sortedSavedCats.length-1} small style={{padding:"6px 8px"}}>↓</Btn>
-                          <span style={{flex:1,fontSize:14,minWidth:100}}>{c.name}</span>
-                          <span style={{fontSize:12,color:"var(--dim)"}}>{saved.filter(s=>s.savedCatId===c.id).length}件</span>
-                          <Btn on={()=>{setRenameSavedCatId(c.id);setRenameSavedCatName(c.name)}} small>名前変更</Btn>
-                          <Btn on={()=>{if(c.id==="default"){flash("既定カテゴリは削除できません");return}if(confirm(`「${c.name}」を削除しますか？\n中のプロンプトは未分類に移動します。`))deleteSavedCat(c.id)}} disabled={c.id==="default"} bg="var(--negBg)" color="var(--neg)" border="1px solid var(--negBdr)" small>削除</Btn>
-                        </>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Saved prompts grouped by category */}
-              <div style={{marginBottom:20}}>
-                <div style={{fontSize:15,fontWeight:600,marginBottom:10}}>保存済みプロンプト ({saved.length})</div>
-                {saved.length===0&&<span style={{fontSize:14,color:"var(--dim)"}}>保存されたプロンプトはまだありません</span>}
-                {sortedSavedCats.map(cat=>{
-                  const items=saved.filter(s=>s.savedCatId===cat.id);
-                  if(items.length===0) return null;
-                  return (
-                    <div key={cat.id} style={{marginBottom:14}}>
-                      <div style={{fontSize:13,fontWeight:600,color:"var(--gold)",marginBottom:6,padding:"4px 8px",background:"var(--goldBg)",borderRadius:6,display:"inline-block"}}>★ {cat.name} ({items.length})</div>
-                      <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                        {items.map(s=>{
-                          const open=expandedSaved===s.id;
-                          return(
-                            <div key={s.id} style={{background:"var(--bg2)",borderRadius:10,border:"1px solid var(--bdr)",overflow:"hidden"}}>
-                              <div onClick={()=>setExpandedSaved(open?null:s.id)} style={{display:"flex",alignItems:"center",gap:8,padding:"12px 14px",cursor:"pointer"}}>
-                                <span style={{fontSize:14,color:"var(--gold)",transform:open?"rotate(90deg)":"rotate(0)",transition:"transform .15s",flexShrink:0}}>▶</span>
-                                <span style={{fontSize:14,fontWeight:600,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</span>
-                                <span style={{fontSize:12,color:"var(--dim)",flexShrink:0}}>{s.date}</span>
-                              </div>
-                              {open&&(
-                                <div className="fi" style={{padding:"0 14px 14px",display:"flex",flexDirection:"column",gap:10}}>
-                                  {s.pos&&(<div>
-                                    <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
-                                      <span style={{fontSize:13,fontWeight:600,color:"var(--pos)"}}>⊕ Positive</span>
-                                      <Btn on={()=>copyText(s.pos,"ポジティブ")} bg="var(--posBg)" color="var(--pos)" border="1px solid var(--posBdr)" small>コピー</Btn>
-                                    </div>
-                                    <div className="mono" onDoubleClick={()=>copyText(s.pos,"ポジティブ")} title="ダブルクリックでコピー" style={{fontSize:13,lineHeight:1.6,padding:"8px 10px",borderRadius:6,background:"var(--bg0)",color:"var(--pos)",wordBreak:"break-all",userSelect:"all",WebkitUserSelect:"all",cursor:"pointer"}}>{s.pos}</div>
-                                  </div>)}
-                                  {s.neg&&(<div>
-                                    <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
-                                      <span style={{fontSize:13,fontWeight:600,color:"var(--neg)"}}>⊖ Negative</span>
-                                      <Btn on={()=>copyText(s.neg,"ネガティブ")} bg="var(--negBg)" color="var(--neg)" border="1px solid var(--negBdr)" small>コピー</Btn>
-                                    </div>
-                                    <div className="mono" onDoubleClick={()=>copyText(s.neg,"ネガティブ")} title="ダブルクリックでコピー" style={{fontSize:13,lineHeight:1.6,padding:"8px 10px",borderRadius:6,background:"var(--bg0)",color:"var(--neg)",wordBreak:"break-all",userSelect:"all",WebkitUserSelect:"all",cursor:"pointer"}}>{s.neg}</div>
-                                  </div>)}
-                                  <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-                                    {isExtension&&<Btn on={()=>handleSendToNovelAI({pos:s.pos,neg:s.neg})} bg="var(--accDim)" color="var(--acc)" border="1px solid var(--acc)" small>🪄 NovelAI へ送信</Btn>}
-                                    <span style={{fontSize:12,color:"var(--dim)"}}>移動先:</span>
-                                    <select value={s.savedCatId} onChange={e=>moveSavedItem(s.id,e.target.value)} style={{width:"auto",minWidth:140,fontSize:13,padding:"6px 10px"}}>
-                                      {sortedSavedCats.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
-                                    </select>
-                                    <Btn on={()=>{if(confirm(`「${s.name}」を削除しますか？`))deleteSaved(s.id)}} bg="var(--negBg)" color="var(--neg)" border="1px solid var(--negBdr)" small style={{marginLeft:"auto"}}>削除</Btn>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
               </div>
             </div>
           )}
