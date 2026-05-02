@@ -1,4 +1,6 @@
 node_modules/
 dist/
+dist-ext/
 .vite/
 *.log
+nai-prompt-extension*.zip

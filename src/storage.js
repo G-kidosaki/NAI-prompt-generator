@@ -1,8 +1,52 @@
 /**
- * localStorage ベースの storage adapter
- * Artifact の window.storage / Electron の IPC storage と同じインターフェース
+ * storage adapter
+ *  - 拡張機能環境では chrome.storage.local
+ *  - それ以外（PWA / 通常 Web）では localStorage
+ * インターフェースは Artifact / Electron の storage と同じ async API
  */
-const storage = {
+const cs =
+  typeof chrome !== "undefined" && chrome?.storage?.local
+    ? chrome.storage.local
+    : null;
+
+const chromeStorage = {
+  async get(key) {
+    try {
+      const o = await cs.get(key);
+      if (!(key in o)) return null;
+      return { key, value: o[key] };
+    } catch {
+      return null;
+    }
+  },
+  async set(key, value) {
+    try {
+      await cs.set({ [key]: value });
+      return { key, value };
+    } catch {
+      return null;
+    }
+  },
+  async delete(key) {
+    try {
+      await cs.remove(key);
+      return { key, deleted: true };
+    } catch {
+      return null;
+    }
+  },
+  async list(prefix) {
+    try {
+      const o = await cs.get(null);
+      const keys = Object.keys(o).filter((k) => !prefix || k.startsWith(prefix));
+      return { keys };
+    } catch {
+      return { keys: [] };
+    }
+  },
+};
+
+const localStorageAdapter = {
   async get(key) {
     try {
       const value = localStorage.getItem(key);
@@ -12,7 +56,6 @@ const storage = {
       return null;
     }
   },
-
   async set(key, value) {
     try {
       localStorage.setItem(key, value);
@@ -21,7 +64,6 @@ const storage = {
       return null;
     }
   },
-
   async delete(key) {
     try {
       localStorage.removeItem(key);
@@ -30,7 +72,6 @@ const storage = {
       return null;
     }
   },
-
   async list(prefix) {
     try {
       const keys = [];
@@ -44,5 +85,7 @@ const storage = {
     }
   },
 };
+
+const storage = cs ? chromeStorage : localStorageAdapter;
 
 export default storage;
