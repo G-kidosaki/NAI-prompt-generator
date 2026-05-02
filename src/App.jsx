@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import storage from "./storage";
+import { isExtension, sendToNovelAI, pickTarget, resetTargets } from "./extension/bridge";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 const now = () =>
@@ -67,6 +68,7 @@ const wrap = (text, w) => {
 
 const SK = "nai-pg-v3";
 const SK_SAVED = "nai-pg-saved-v3";
+const SK_SETTINGS = "nai-pg-settings-v3";
 const SK_OLD = "nai-pg-v2";
 const SK_SAVED_OLD = "nai-pg-saved-v2";
 
@@ -136,6 +138,10 @@ export default function App() {
   const [renameSavedCatId, setRenameSavedCatId] = useState(null);
   const [renameSavedCatName, setRenameSavedCatName] = useState("");
 
+  /* ── extension settings ── */
+  const [sendMode, setSendMode] = useState("overwrite"); // "overwrite" | "append"
+  const [sending, setSending] = useState(false);
+
   const [toast, setToast] = useState("");
   const promptRef = useRef(null);
 
@@ -189,10 +195,18 @@ export default function App() {
         }
       } catch {}
       setLoaded(true);
+      try {
+        const r3 = await storage.get(SK_SETTINGS);
+        if (r3?.value) {
+          const s = JSON.parse(r3.value);
+          if (s.sendMode === "append" || s.sendMode === "overwrite") setSendMode(s.sendMode);
+        }
+      } catch {}
     })();
   }, []);
   useEffect(() => { if (!loaded) return; (async () => { try { await storage.set(SK, JSON.stringify({ cats, prompts, sels })); } catch {} })(); }, [cats, prompts, sels, loaded]);
   useEffect(() => { if (!loaded) return; (async () => { try { await storage.set(SK_SAVED, JSON.stringify({ savedCats, saved })); } catch {} })(); }, [savedCats, saved, loaded]);
+  useEffect(() => { if (!loaded) return; (async () => { try { await storage.set(SK_SETTINGS, JSON.stringify({ sendMode })); } catch {} })(); }, [sendMode, loaded]);
 
   /* clear stale tag selections when switching manage cat */
   useEffect(() => { setNewPromptTagIds([]); setNewPromptTagInput(""); setEditId(null); }, [manageCat]);
@@ -382,6 +396,49 @@ export default function App() {
     setSaveName(""); flash(items.length === 1 ? `「${items[0].name}」を保存しました` : `${items.length}件保存しました`);
   };
   const deleteSaved = (id) => setSaved(p => p.filter(x => x.id !== id));
+
+  /* ── send to NovelAI (extension only) ── */
+  const handleSendToNovelAI = async (override) => {
+    if (!isExtension) { flash("拡張機能でのみ利用可能です"); return; }
+    const pos = override?.pos ?? posOut;
+    const neg = override?.neg ?? negOut;
+    if (!pos && !neg) { flash("送信する内容がありません"); return; }
+    setSending(true);
+    try {
+      const res = await sendToNovelAI({ pos, neg, mode: sendMode });
+      if (res?.ok) flash(`NovelAI へ送信しました（${sendMode === "append" ? "末尾追加" : "上書き"}）`);
+      else if (res?.reason === "POS_NOT_FOUND") flash("ポジ用 textarea が見つかりません — 「🎯 ポジ要素を選択」をお試しください");
+      else if (res?.reason === "NEG_NOT_FOUND") flash("ネガ用 textarea が見つかりません — 「🎯 ネガ要素を選択」をお試しください");
+      else flash("送信に失敗しました");
+    } catch (e) {
+      if (e?.message === "NOVELAI_TAB_NOT_FOUND") flash("NovelAI Image Generator のタブを開いてください");
+      else flash("送信エラー: " + (e?.message || "unknown"));
+    } finally {
+      setSending(false);
+    }
+  };
+  const handlePickTarget = async (kind) => {
+    if (!isExtension) return;
+    try {
+      const res = await pickTarget(kind);
+      if (res?.ok) flash(`${kind === "pos" ? "ポジ" : "ネガ"}要素を保存しました`);
+      else if (res?.reason === "CANCELLED") flash("選択をキャンセルしました");
+      else if (res?.reason === "NOT_TEXTAREA") flash("textarea を選択してください");
+      else flash("選択に失敗しました");
+    } catch (e) {
+      if (e?.message === "NOVELAI_TAB_NOT_FOUND") flash("NovelAI のタブを開いてください");
+      else flash("エラー: " + (e?.message || "unknown"));
+    }
+  };
+  const handleResetTargets = async () => {
+    if (!isExtension) return;
+    try {
+      await resetTargets();
+      flash("ターゲット設定をリセットしました");
+    } catch (e) {
+      if (e?.message === "NOVELAI_TAB_NOT_FOUND") flash("NovelAI のタブを開いてください");
+    }
+  };
 
   /* ── copy ── */
   const copyText = async (text, label) => {
@@ -864,6 +921,36 @@ export default function App() {
                 <div className="mono" onDoubleClick={()=>copyText(negOut,"ネガティブ")} title="ダブルクリックでコピー" style={{padding:14,borderRadius:10,fontSize:14,lineHeight:1.7,minHeight:50,wordBreak:"break-all",background:"var(--bg2)",border:"1px solid var(--negBdr)",color:"var(--neg)",userSelect:"all",WebkitUserSelect:"all",cursor:negOut?"pointer":"default"}}>{negOut||<span style={{opacity:.35}}>（未選択）</span>}</div>
               </div>
 
+              {/* Send to NovelAI (extension only) */}
+              {isExtension&&(
+                <div style={{background:"var(--bg2)",borderRadius:12,padding:16,marginBottom:18,border:"1px solid var(--acc)"}}>
+                  <div style={{fontSize:15,fontWeight:600,marginBottom:10,color:"var(--acc)"}}>🪄 NovelAI へ送信</div>
+                  <div style={{display:"flex",gap:8,marginBottom:10,alignItems:"center",flexWrap:"wrap"}}>
+                    <span style={{fontSize:13,color:"var(--dim)"}}>送信モード:</span>
+                    {[["overwrite","上書き"],["append","末尾追加"]].map(([k,l])=>(
+                      <button key={k} onClick={()=>setSendMode(k)} style={{
+                        padding:"6px 14px",borderRadius:18,fontSize:13,fontWeight:600,
+                        background:sendMode===k?"var(--accDim)":"var(--bg0)",
+                        color:sendMode===k?"var(--acc)":"var(--dim)",
+                        border:sendMode===k?"2px solid var(--acc)":"1px solid var(--bdr)",
+                      }}>{l}</button>
+                    ))}
+                  </div>
+                  <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+                    <Btn on={()=>handleSendToNovelAI()} disabled={sending||(!posOut&&!negOut)} bg="var(--acc)" color="#000" border="none">
+                      {sending?"送信中...":"NovelAI へ送信"}
+                    </Btn>
+                    <Btn on={()=>handlePickTarget("pos")} small>🎯 ポジ要素を選択</Btn>
+                    <Btn on={()=>handlePickTarget("neg")} small>🎯 ネガ要素を選択</Btn>
+                    <Btn on={handleResetTargets} small>リセット</Btn>
+                  </div>
+                  <div style={{fontSize:11,color:"var(--dim)"}}>
+                    NovelAI Image Generator (https://novelai.net/image) を開いた状態で送信してください。<br/>
+                    要素が見つからない場合は「🎯」ボタンで対象 textarea を直接選択できます。
+                  </div>
+                </div>
+              )}
+
               {/* Save section */}
               <div style={{background:"var(--bg2)",borderRadius:12,padding:16,marginBottom:18,border:"1px solid var(--goldBdr)"}}>
                 <div style={{fontSize:15,fontWeight:600,marginBottom:10,color:"var(--gold)"}}>★ 完成プロンプトとして保存</div>
@@ -958,6 +1045,7 @@ export default function App() {
                                     <div className="mono" onDoubleClick={()=>copyText(s.neg,"ネガティブ")} title="ダブルクリックでコピー" style={{fontSize:13,lineHeight:1.6,padding:"8px 10px",borderRadius:6,background:"var(--bg0)",color:"var(--neg)",wordBreak:"break-all",userSelect:"all",WebkitUserSelect:"all",cursor:"pointer"}}>{s.neg}</div>
                                   </div>)}
                                   <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                                    {isExtension&&<Btn on={()=>handleSendToNovelAI({pos:s.pos,neg:s.neg})} bg="var(--accDim)" color="var(--acc)" border="1px solid var(--acc)" small>🪄 NovelAI へ送信</Btn>}
                                     <span style={{fontSize:12,color:"var(--dim)"}}>移動先:</span>
                                     <select value={s.savedCatId} onChange={e=>moveSavedItem(s.id,e.target.value)} style={{width:"auto",minWidth:140,fontSize:13,padding:"6px 10px"}}>
                                       {sortedSavedCats.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}

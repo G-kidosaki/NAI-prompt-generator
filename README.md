@@ -1,24 +1,59 @@
-# NAI Prompt Generator — PWA 版 (iPad / スマホ / PC)
+# NAI Prompt Generator
 
-GitHub Pages にデプロイし、iPad の「ホーム画面に追加」でネイティブアプリのように使えます。
-オフラインでも動作します。
+PWA 版（iPad / スマホ / PC）と Chrome 拡張版（NovelAI Image Generator 直接連携）の両方をビルド可能。
 
 ---
 
 ## セットアップ
 
 ```bash
-cd nai-prompt-generator-pwa
 npm install
 ```
 
-## ローカル開発
+## ローカル開発（PWA）
 
 ```bash
 npm run dev
 ```
 
 ブラウザで `http://localhost:5173` を開きます。
+
+## ローカル開発（Chrome 拡張）
+
+```bash
+npm run dev:ext
+```
+
+`http://localhost:5174` で起動しつつ、`dist-ext/` に拡張のソースが書き出されます。
+`chrome://extensions/` で「パッケージ化されていない拡張機能を読み込む」→ `dist-ext/` を選択。
+
+## Chrome 拡張のビルド
+
+```bash
+npm run build:ext
+# 出力: dist-ext/
+```
+
+1. Chrome で `chrome://extensions/` を開く
+2. 右上「デベロッパーモード」を ON
+3. 「パッケージ化されていない拡張機能を読み込む」→ `dist-ext/` を選択
+4. NovelAI Image Generator (https://novelai.net/image) を開く
+5. 拡張アイコンをクリック → サイドパネルが開く
+6. プロンプトを構築し「🪄 NovelAI へ送信」でテキストエリアへ反映
+
+### 送信モード
+
+- **上書き**: NovelAI 側の既存値を完全に置き換え
+- **末尾追加**: 既存値の末尾に `, ` で連結
+
+### ターゲット要素が見つからない場合
+
+NovelAI の DOM が変わって自動検出に失敗したら、出力タブの「🎯 ポジ要素を選択 / ネガ要素を選択」をクリックし、NovelAI ページ上で対象 textarea をクリックして登録してください。設定は `chrome.storage.local` に永続化されます。
+
+### 互換性
+
+- Side Panel API は **Chrome / Edge 114+** が必要です。
+- データは `chrome.storage.local` に保存されます（PWA 版の `localStorage` とはオリジンが異なるため別管理）。両方使う場合は管理タブの「📥 書き出し」→ もう一方で「➕ マージ読み込み」でデータを移行できます。
 
 ---
 
