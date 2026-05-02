@@ -447,8 +447,8 @@ export default function App() {
     try {
       const res = await sendToNovelAI({ pos, neg, mode: sendMode });
       if (res?.ok) flash(`NovelAI へ送信しました（${sendMode === "append" ? "末尾追加" : "上書き"}）`);
-      else if (res?.reason === "POS_NOT_FOUND") flash("ポジ用 textarea が見つかりません — 「🎯 ポジ要素を選択」をお試しください");
-      else if (res?.reason === "NEG_NOT_FOUND") flash("ネガ用 textarea が見つかりません — 「🎯 ネガ要素を選択」をお試しください");
+      else if (res?.reason === "POS_NOT_FOUND") flash("ポジ用の入力欄が見つかりません — 「🎯 ポジ要素を選択」をお試しください");
+      else if (res?.reason === "NEG_NOT_FOUND") flash("ネガ用の入力欄が見つかりません — 「🎯 ネガ要素を選択」をお試しください");
       else flash("送信に失敗しました");
     } catch (e) {
       const m = e?.message || "";
@@ -465,7 +465,7 @@ export default function App() {
       const res = await pickTarget(kind);
       if (res?.ok) flash(`${kind === "pos" ? "ポジ" : "ネガ"}要素を保存しました`);
       else if (res?.reason === "CANCELLED") flash("選択をキャンセルしました");
-      else if (res?.reason === "NOT_TEXTAREA") flash("textarea を選択してください");
+      else if (res?.reason === "NOT_TEXTAREA") flash("プロンプト入力欄を選択してください");
       else flash("選択に失敗しました");
     } catch (e) {
       const m = e?.message || "";
