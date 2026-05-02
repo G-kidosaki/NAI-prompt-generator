@@ -641,7 +641,7 @@ export default function App() {
                 <button key={k} onClick={()=>{setTab(k);setSearch("")}} style={{
                   padding:"8px 16px",borderRadius:8,fontSize:14,fontWeight:500,
                   background:tab===k?"var(--acc)":"transparent",color:tab===k?"#0b0e14":"var(--dim)",
-                }}>{v}{k==="output"&&saved.length>0&&<span style={{marginLeft:4,fontSize:10}}>({saved.length})</span>}</button>
+                }}>{v}</button>
               ))}
             </div>
           </div>
