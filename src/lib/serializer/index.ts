@@ -1,5 +1,6 @@
-import type { Library, ModelId } from "../types";
+import type { Library, Composition, ModelId } from "../types";
 import { serializeV3 } from "./v3";
+import { serializeV4 } from "./v4";
 
 /**
  * 出力結果の共通形。V4 以降は per-character / t5 を追加するが、
@@ -19,19 +20,27 @@ export interface SerializeResult {
 }
 
 /**
- * モデル ID に応じた直列化のディスパッチャ。
- * 現状は V3 のみ実装済み。V4 / V4.5 は P3 / P4 で追加。
+ * Library（V3 互換のフラットな選択）からの直列化。
+ * V4 構造（複数キャラ）を使いたい場合は serializeComposition() を呼ぶこと。
  */
-export function serialize(library: Library, model: ModelId): SerializeResult {
-  // 暫定: V4 / V4.5 が選択されても V3 と同じ結果を返す（重み形式は維持）。
-  // P3 で V4 シリアライザに切り替える。
-  switch (model) {
+export function serialize(library: Library, _model: ModelId): SerializeResult {
+  // Library モデルにはキャラ概念がないので、どのモデル ID でも V3 形式で返す。
+  return serializeV3(library);
+}
+
+/**
+ * Composition（V4 構造）からの直列化。
+ */
+export function serializeComposition(comp: Composition): SerializeResult {
+  switch (comp.model) {
     case "v3":
+      // Composition だが V3 として出力したい場合は base のみフラットに連結
+      return serializeV4({ ...comp, characters: [] });
     case "v4":
     case "v4.5":
     default:
-      return serializeV3(library);
+      return serializeV4(comp);
   }
 }
 
-export { serializeV3 };
+export { serializeV3, serializeV4 };
