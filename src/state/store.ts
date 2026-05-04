@@ -276,7 +276,7 @@ interface SettingsState {
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
-      model: "v3",
+      model: "v4",                       // 新規ユーザー向けデフォルト。既存ユーザーは persist の merge で保存値を復元
       sendMode: "overwrite",
       migratedSaved: false,
       setModel: (model) => set({ model }),
@@ -290,9 +290,12 @@ export const useSettingsStore = create<SettingsState>()(
       merge: (persistedState, currentState) => {
         const ps = (persistedState as any) ?? {};
         const raw = ps.state ?? ps;
+        const validModel = raw.model === "v3" || raw.model === "v4" || raw.model === "v4.5"
+          ? raw.model
+          : currentState.model;
         return {
           ...currentState,
-          model: raw.model === "v4" || raw.model === "v4.5" ? raw.model : "v3",
+          model: validModel,
           sendMode: raw.sendMode === "append" ? "append" : "overwrite",
           migratedSaved: !!raw.migratedSaved,
         };

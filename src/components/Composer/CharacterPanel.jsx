@@ -73,7 +73,7 @@ export default function CharacterPanel({
           ⊕ ポジ ({positives.length}){isActivePos && " — クリックでここに追加"}
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {positives.length === 0 && <span style={{ fontSize: 11, opacity: .5 }}>（空）</span>}
+          {positives.length === 0 && <span style={{ fontSize: 11, opacity: .5 }}>↓ 入力欄にタグを書いて Enter</span>}
           {positives.map((t, i) => (
             <TagPill
               key={t.id}
@@ -105,7 +105,7 @@ export default function CharacterPanel({
           ⊖ ネガ ({negatives.length}){isActiveNeg && " — クリックでここに追加"}
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {negatives.length === 0 && <span style={{ fontSize: 11, opacity: .5 }}>（空）</span>}
+          {negatives.length === 0 && <span style={{ fontSize: 11, opacity: .5 }}>↓ 除外したいタグを Enter</span>}
           {negatives.map((t) => (
             <TagPill
               key={t.id}

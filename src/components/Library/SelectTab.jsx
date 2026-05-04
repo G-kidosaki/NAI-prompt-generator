@@ -5,9 +5,24 @@ export default function SelectTab({
   search, setSearch, tagFilter, setTagFilter,
   addMode, setAddMode, activeCatObj, filteredSelect,
   toggleSel, copyText,
+  useV4, compActiveTarget,
 }) {
+  const targetLabel = useV4 && compActiveTarget
+    ? (compActiveTarget.kind === "base" ? "📦 ベース" : "🪄 キャラ")
+        + (compActiveTarget.neg ? " ⊖ ネガ" : " ⊕ ポジ")
+    : null;
   return (
     <div className="fi">
+      {useV4 && (
+        <div style={{
+          background: "var(--accDim)", border: "1px solid var(--acc)",
+          borderRadius: 8, padding: "8px 12px", marginBottom: 12,
+          fontSize: 12, color: "var(--acc)", lineHeight: 1.5,
+        }}>
+          💡 V4 モード: クリックすると <strong>「🪄 編集」タブの {targetLabel}</strong> に追加されます。
+          ターゲットを変えるには「編集」タブで他のパネルをクリックして切り替えてください。
+        </div>
+      )}
       {/* category tabs */}
       <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 10, marginBottom: 10, WebkitOverflowScrolling: "touch" }}>
         {sortedCats.map((c) => {
