@@ -1,8 +1,11 @@
 export default function Header({ tab, setTab, setSearch, model, setModel }) {
   const models = [
-    { id: "v3", label: "V3", enabled: true },
-    { id: "v4", label: "V4", enabled: true },
-    { id: "v4.5", label: "V4.5", enabled: true },
+    { id: "v3", label: "V3", enabled: true,
+      hint: "V3 モード\n選択タブで使うフラットなプロンプト。{} / [] で強調、カンマ区切りで出力。複数キャラ非対応。" },
+    { id: "v4", label: "V4", enabled: true,
+      hint: "V4 モード\n🪄 V4作成タブで複数キャラを別パネルに分けて編集。|| 区切り、source#/target#/mutual#、1.3::tag:: 数値強調が使える。" },
+    { id: "v4.5", label: "V4.5", enabled: true,
+      hint: "V4.5 モード\nV4 の機能に加え、T5 自然文プロンプト欄が有効。タグでは表現しづらい要素を自然文で書ける。" },
   ];
   return (
     <div style={{ padding: `calc(12px + var(--safe-t)) 16px 10px`, flexShrink: 0, borderBottom: "1px solid var(--bdr)" }}>
@@ -19,7 +22,7 @@ export default function Header({ tab, setTab, setSearch, model, setModel }) {
                   key={m.id}
                   onClick={() => m.enabled && setModel(m.id)}
                   disabled={!m.enabled}
-                  title={m.enabled ? `${m.label} で出力` : `${m.label} は次フェーズで対応予定`}
+                  title={m.hint || `${m.label}`}
                   style={{
                     padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 600,
                     background: model === m.id ? "var(--acc)" : "transparent",

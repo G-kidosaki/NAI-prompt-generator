@@ -497,6 +497,26 @@ export default function App() {
 
         <Header tab={tab} setTab={setTab} setSearch={setSearch} model={model} setModel={setModel} />
 
+        {/* MODE BANNER — current model 説明 */}
+        <div style={{
+          flexShrink: 0, padding: "6px 16px", fontSize: 11, lineHeight: 1.4,
+          background: useV4 ? "var(--accDim)" : "var(--bg2)",
+          color: useV4 ? "var(--acc)" : "var(--dim)",
+          borderBottom: "1px solid var(--bdr)",
+        }}>
+          <div style={{ maxWidth: 960, margin: "0 auto" }}>
+            {model === "v3" && (<>
+              <strong>V3</strong>: 「選択」タブでプロンプトを選び、<strong>{"{}/[]"}</strong> で強調。出力は単一テキスト（複数キャラ非対応）。
+            </>)}
+            {model === "v4" && (<>
+              <strong>V4</strong>: 「🪄 V4作成」タブで base ＋ キャラ別に編集。出力は <strong className="mono">{"||"}</strong> 区切り、<strong className="mono">source#</strong> / <strong className="mono">target#</strong> / <strong className="mono">1.3::tag::</strong> 等が使えます。
+            </>)}
+            {model === "v4.5" && (<>
+              <strong>V4.5</strong>: V4 の機能 ＋ <strong>T5 自然文プロンプト</strong>欄。タグでは表現しづらい要素を自然文で書けます。
+            </>)}
+          </div>
+        </div>
+
         {/* SCROLLABLE CONTENT */}
         <div style={{ flex: 1, overflow: "auto", WebkitOverflowScrolling: "touch", paddingBottom: barPad }}>
           <div style={{ maxWidth: 960, margin: "0 auto", padding: "14px 16px" }}>
