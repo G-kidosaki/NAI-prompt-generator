@@ -1,7 +1,8 @@
 /**
  * NovelAI Image Generator (https://novelai.net/image*) で動作する content script
  * - sidepanel から INSERT_PROMPTS / PICK_TARGET / PING を受信
- * - ポジ／ネガの textarea をヒューリスティックに検出（失敗時はユーザーに選択させ永続化）
+ * - ポジ／ネガの入力欄（textarea または contenteditable）をヒューリスティックに検出
+ *   失敗時はユーザーに選択させ永続化
  */
 
 const TARGETS_KEY = "naipg-targets-v1";
@@ -21,29 +22,38 @@ function persistTargets() {
 
 /* ───── 要素検出 ───── */
 
+const EDITABLE_SELECTOR = 'textarea, [contenteditable="true"], [contenteditable=""]';
+
+function isEditable(el) {
+  if (!el || el.nodeType !== 1) return false;
+  if (el.tagName === "TEXTAREA") return true;
+  if (el.isContentEditable) return true;
+  return false;
+}
+
 function tryCustomSelector(kind) {
   const sel = cached[kind]?.selector;
   if (!sel) return null;
   try {
     const el = document.querySelector(sel);
-    return el && el.tagName === "TEXTAREA" ? el : null;
+    return isEditable(el) ? el : null;
   } catch {
     return null;
   }
 }
 
 function findByLabelText(labelMatcher) {
-  // ラベル文字列に近い textarea を探す（label / heading / parent text）
-  const all = Array.from(document.querySelectorAll("textarea"));
-  for (const ta of all) {
-    let n = ta;
+  // ラベル文字列に近い editor を探す（aria-label / placeholder / 親テキスト）
+  const all = Array.from(document.querySelectorAll(EDITABLE_SELECTOR));
+  for (const ed of all) {
+    let n = ed;
     for (let depth = 0; depth < 6 && n; depth++) {
-      const text = (n.getAttribute?.("aria-label") || n.placeholder || n.textContent || "").trim();
-      if (labelMatcher.test(text)) return ta;
+      const text = (n.getAttribute?.("aria-label") || n.getAttribute?.("placeholder") || n.placeholder || n.textContent || "").trim();
+      if (labelMatcher.test(text)) return ed;
       n = n.parentElement;
     }
   }
-  // ラベル系要素（label/h1-6/div）の text を探して、その近傍 textarea を返す
+  // ラベル系要素（label/h1-6/span/div）の text を探して、その近傍の editor を返す
   const candidates = Array.from(
     document.querySelectorAll("label, h1, h2, h3, h4, h5, h6, span, div")
   );
@@ -53,8 +63,8 @@ function findByLabelText(labelMatcher) {
     if (!labelMatcher.test(text)) continue;
     let n = c;
     for (let depth = 0; depth < 6 && n; depth++) {
-      const ta = n.querySelector?.("textarea");
-      if (ta) return ta;
+      const ed = n.querySelector?.(EDITABLE_SELECTOR);
+      if (ed) return ed;
       n = n.parentElement;
     }
   }
@@ -68,6 +78,8 @@ function findPos() {
     findByLabelText(/prompt/i) ||
     document.querySelector('textarea[placeholder*="prompt" i]') ||
     document.querySelector('textarea[aria-label*="prompt" i]') ||
+    document.querySelector('[contenteditable="true"][aria-label*="prompt" i]') ||
+    document.querySelector('[contenteditable="true"][data-placeholder*="prompt" i]') ||
     null
   );
 }
@@ -79,6 +91,9 @@ function findNeg() {
     findByLabelText(/negative/i) ||
     document.querySelector('textarea[placeholder*="undesired" i]') ||
     document.querySelector('textarea[aria-label*="undesired" i]') ||
+    document.querySelector('[contenteditable="true"][aria-label*="undesired" i]') ||
+    document.querySelector('[contenteditable="true"][aria-label*="negative" i]') ||
+    document.querySelector('[contenteditable="true"][data-placeholder*="undesired" i]') ||
     null
   );
 }
@@ -93,14 +108,42 @@ function resolveTargets() {
   };
 }
 
-/* ───── 値の反映（React 互換） ───── */
+/* ───── 値の反映（React / ProseMirror 互換） ───── */
 
-function setReactValue(el, value) {
-  const proto = HTMLTextAreaElement.prototype;
-  const setter = Object.getOwnPropertyDescriptor(proto, "value").set;
-  setter.call(el, value);
-  el.dispatchEvent(new Event("input", { bubbles: true }));
-  el.dispatchEvent(new Event("change", { bubbles: true }));
+function getEditorValue(el) {
+  if (!el) return "";
+  if (el.tagName === "TEXTAREA") return el.value || "";
+  return (el.innerText || el.textContent || "").replace(/​/g, "");
+}
+
+function setEditorValue(el, value) {
+  if (el.tagName === "TEXTAREA") {
+    const proto = HTMLTextAreaElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(proto, "value").set;
+    setter.call(el, value);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+    return;
+  }
+  // contenteditable（ProseMirror など）
+  el.focus();
+  const sel = window.getSelection();
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  sel.removeAllRanges();
+  sel.addRange(range);
+  // execCommand は ProseMirror の beforeinput ハンドラを起動するので確実
+  let inserted = false;
+  try {
+    inserted = document.execCommand("insertText", false, value);
+  } catch {
+    inserted = false;
+  }
+  if (!inserted) {
+    // 最終フォールバック：innerText を直接書き換えて InputEvent を発火
+    el.innerText = value;
+    el.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertReplacementText", data: value }));
+  }
 }
 
 function appendValue(existing, addition) {
@@ -163,7 +206,7 @@ function startPicker(kind, sendResponse) {
     boxSizing: "border-box",
   });
   const banner = document.createElement("div");
-  banner.textContent = `🎯 ${kind === "pos" ? "ポジティブ" : "ネガティブ"}用の textarea をクリックしてください（ESC でキャンセル）`;
+  banner.textContent = `🎯 ${kind === "pos" ? "ポジティブ" : "ネガティブ"}用のプロンプト入力欄をクリックしてください（ESC でキャンセル）`;
   Object.assign(banner.style, {
     position: "fixed",
     top: "16px",
@@ -226,23 +269,22 @@ function startPicker(kind, sendResponse) {
     e.preventDefault();
     e.stopPropagation();
     const el = document.elementFromPoint(e.clientX, e.clientY);
-    if (!el || el.tagName !== "TEXTAREA") {
-      // textarea を持つ親へ昇る
-      let node = el;
-      while (node && node.tagName !== "TEXTAREA" && node !== document.body) {
-        node = node.parentElement;
-      }
-      if (!node || node.tagName !== "TEXTAREA") {
+    // textarea / contenteditable を含む祖先へ昇る
+    let node = el;
+    while (node && node !== document.body && !isEditable(node)) {
+      node = node.parentElement;
+    }
+    if (!isEditable(node)) {
+      // 子孫に editor がある場合（ラッパーをクリックしたケース）も許容
+      const inner = el?.querySelector?.(EDITABLE_SELECTOR);
+      if (isEditable(inner)) {
+        node = inner;
+      } else {
         finish({ ok: false, reason: "NOT_TEXTAREA" });
         return;
       }
-      const selector = buildSelectorForElement(node);
-      cached[kind] = { selector };
-      persistTargets();
-      finish({ ok: true, selector });
-      return;
     }
-    const selector = buildSelectorForElement(el);
+    const selector = buildSelectorForElement(node);
     cached[kind] = { selector };
     persistTargets();
     finish({ ok: true, selector });
@@ -282,12 +324,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         return;
       }
       if (msg.pos && targets.pos) {
-        const next = msg.mode === "append" ? appendValue(targets.pos.value, msg.pos) : msg.pos;
-        setReactValue(targets.pos, next);
+        const next = msg.mode === "append" ? appendValue(getEditorValue(targets.pos), msg.pos) : msg.pos;
+        setEditorValue(targets.pos, next);
       }
       if (msg.neg && targets.neg) {
-        const next = msg.mode === "append" ? appendValue(targets.neg.value, msg.neg) : msg.neg;
-        setReactValue(targets.neg, next);
+        const next = msg.mode === "append" ? appendValue(getEditorValue(targets.neg), msg.neg) : msg.neg;
+        setEditorValue(targets.neg, next);
       }
       sendResponse({ ok: true, found });
       return;
