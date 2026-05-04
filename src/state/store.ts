@@ -6,9 +6,17 @@ import {
   SK, SK_OLD,
 } from "../lib/constants";
 import { uid, sortByOrder, assignPromptOrders } from "../lib/utils";
+import {
+  emptyComposition,
+  addTag as addTagPure, removeTag as removeTagPure,
+  updateTag as updateTagPure, moveTag as moveTagPure,
+  addCharacter as addCharacterPure, removeCharacter as removeCharacterPure,
+  updateCharacter as updateCharacterPure, moveCharacter as moveCharacterPure,
+  type TagTarget,
+} from "../lib/composition";
 import type {
   Library, Category, PromptItem, SelectionMap,
-  ModelId,
+  ModelId, Composition, Tag, CharacterSlot,
 } from "../lib/types";
 
 /**
@@ -286,6 +294,83 @@ export const useSettingsStore = create<SettingsState>()(
           model: raw.model === "v4" || raw.model === "v4.5" ? raw.model : "v3",
           sendMode: raw.sendMode === "append" ? "append" : "overwrite",
           migratedSaved: !!raw.migratedSaved,
+        };
+      },
+    }
+  )
+);
+
+// ─────────────────────────────────────────────────────────
+// Composition slice — 編集中の V4 Composition オブジェクトを保持。
+// 永続化キーは新規の `nai-pg-comp-v4`。Library / Settings ストアと独立。
+// ─────────────────────────────────────────────────────────
+
+interface CompositionState {
+  comp: Composition;
+  /** Composer UI で「いまアクティブな入力先」を覚えるためのターゲット */
+  activeTarget: TagTarget;
+
+  setComp: (c: Composition) => void;
+  resetComp: (model?: ModelId) => void;
+  setModel: (model: ModelId) => void;
+  setBaseT5: (t5: string) => void;
+
+  setActiveTarget: (t: TagTarget) => void;
+
+  addTag: (target: TagTarget, tag: Tag) => void;
+  removeTag: (target: TagTarget, tagId: string) => void;
+  updateTag: (target: TagTarget, tagId: string, patch: Partial<Tag>) => void;
+  moveTag: (target: TagTarget, tagId: string, dir: -1 | 1) => void;
+
+  addCharacter: (name?: string) => void;
+  removeCharacter: (charId: string) => void;
+  updateCharacter: (charId: string, patch: Partial<CharacterSlot>) => void;
+  moveCharacter: (charId: string, dir: -1 | 1) => void;
+}
+
+export const useCompStore = create<CompositionState>()(
+  persist(
+    (set) => ({
+      comp: emptyComposition("v4"),
+      activeTarget: { kind: "base", neg: false },
+
+      setComp: (comp) => set({ comp }),
+      resetComp: (model) => set({ comp: emptyComposition(model ?? "v4") }),
+      setModel: (model) => set((s) => ({ comp: { ...s.comp, model, updatedAt: Date.now() } })),
+      setBaseT5: (t5) => set((s) => ({ comp: { ...s.comp, base: { ...s.comp.base, t5 }, updatedAt: Date.now() } })),
+
+      setActiveTarget: (activeTarget) => set({ activeTarget }),
+
+      addTag: (target, tag) => set((s) => ({ comp: addTagPure(s.comp, target, tag) })),
+      removeTag: (target, tagId) => set((s) => ({ comp: removeTagPure(s.comp, target, tagId) })),
+      updateTag: (target, tagId, patch) => set((s) => ({ comp: updateTagPure(s.comp, target, tagId, patch) })),
+      moveTag: (target, tagId, dir) => set((s) => ({ comp: moveTagPure(s.comp, target, tagId, dir) })),
+
+      addCharacter: (name) => set((s) => ({ comp: addCharacterPure(s.comp, name) })),
+      removeCharacter: (charId) => set((s) => {
+        const next = { comp: removeCharacterPure(s.comp, charId) };
+        // active target がそのキャラを指していたら base に戻す
+        if (s.activeTarget.kind === "char" && s.activeTarget.charId === charId) {
+          return { ...next, activeTarget: { kind: "base", neg: s.activeTarget.neg } as TagTarget };
+        }
+        return next;
+      }),
+      updateCharacter: (charId, patch) => set((s) => ({ comp: updateCharacterPure(s.comp, charId, patch) })),
+      moveCharacter: (charId, dir) => set((s) => ({ comp: moveCharacterPure(s.comp, charId, dir) })),
+    }),
+    {
+      name: "nai-pg-comp-v4",
+      storage: createJSONStorage(() => zustandAdapter),
+      partialize: (state) => ({ comp: state.comp, activeTarget: state.activeTarget }),
+      merge: (persistedState, currentState) => {
+        const ps = (persistedState as any) ?? {};
+        const raw = ps.state ?? ps;
+        // schemaVersion が一致しなければ捨てる（将来のための保険）
+        if (raw?.comp?.schemaVersion !== 4) return currentState;
+        return {
+          ...currentState,
+          comp: raw.comp,
+          activeTarget: raw.activeTarget ?? currentState.activeTarget,
         };
       },
     }

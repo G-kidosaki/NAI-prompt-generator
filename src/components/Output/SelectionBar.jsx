@@ -3,7 +3,9 @@ import Btn from "../Common/Btn";
 export default function SelectionBar({
   selCount, sortedSels, sortedCats, posOut, negOut,
   setWeight, flipSel, removeSel, clearAll,
+  useV4,
 }) {
+  const hasOutput = !!(posOut || negOut);
   return (
     <div style={{
       flexShrink: 0, borderTop: "1px solid var(--bdr)", background: "var(--bg0)",
@@ -11,11 +13,19 @@ export default function SelectionBar({
       maxHeight: 200, overflowY: "auto",
     }}>
       <div style={{ maxWidth: 960, margin: "0 auto" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: selCount > 0 ? 6 : 0 }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: "var(--dim)" }}>選択中 ({selCount})</span>
-          {selCount > 0 && <Btn on={clearAll} small style={{ marginLeft: "auto" }}>全解除</Btn>}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: (selCount > 0 || hasOutput) ? 6 : 0 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: "var(--dim)" }}>
+            {useV4 ? "🪄 V4 出力プレビュー" : `選択中 (${selCount})`}
+          </span>
+          {!useV4 && selCount > 0 && <Btn on={clearAll} small style={{ marginLeft: "auto" }}>全解除</Btn>}
         </div>
-        {selCount > 0 && (
+        {useV4 && hasOutput && (
+          <div className="mono" style={{ padding: "5px 8px", borderRadius: 6, background: "var(--bg2)", fontSize: 11, color: "var(--dim)", wordBreak: "break-all", lineHeight: 1.5 }}>
+            {posOut && <div><span style={{ color: "var(--pos)", fontWeight: 700 }}>P:</span> {posOut}</div>}
+            {negOut && <div><span style={{ color: "var(--neg)", fontWeight: 700 }}>N:</span> {negOut}</div>}
+          </div>
+        )}
+        {!useV4 && selCount > 0 && (
           <>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6, maxHeight: 80, overflowY: "auto", marginBottom: 6 }}>
               {sortedSels.map(({ id, s, p }, i) => {

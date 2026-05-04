@@ -2,12 +2,13 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import storage from "./storage";
 import { isExtension, sendToNovelAI, pickTarget, resetTargets } from "./extension/bridge";
 import { sortByOrder } from "./lib/utils";
-import { serialize } from "./lib/serializer";
+import { serialize, serializeComposition } from "./lib/serializer";
+import { makeTag } from "./lib/composition";
 import { migrateOldSavedToPrompts } from "./lib/migrate";
 import {
   SK_SAVED, SK_SAVED_OLD,
 } from "./lib/constants";
-import { useLibraryStore, useSettingsStore } from "./state/store";
+import { useLibraryStore, useSettingsStore, useCompStore } from "./state/store";
 import GlobalStyles from "./components/Common/GlobalStyles";
 import Header from "./components/Common/Header";
 import Toast from "./components/Common/Toast";
@@ -15,6 +16,7 @@ import SelectTab from "./components/Library/SelectTab";
 import ManageTab from "./components/Library/ManageTab";
 import OutputTab from "./components/Output/OutputTab";
 import SelectionBar from "./components/Output/SelectionBar";
+import ComposerRoot from "./components/Composer/ComposerRoot";
 
 export default function App() {
   /* ── library state (Zustand) ── */
@@ -52,9 +54,26 @@ export default function App() {
   const sendMode = useSettingsStore((s) => s.sendMode);
   const setSendMode = useSettingsStore((s) => s.setSendMode);
   const model = useSettingsStore((s) => s.model);
-  const setModel = useSettingsStore((s) => s.setModel);
+  const setModelSetting = useSettingsStore((s) => s.setModel);
   const migratedSaved = useSettingsStore((s) => s.migratedSaved);
   const setMigratedSaved = useSettingsStore((s) => s.setMigratedSaved);
+
+  /* ── composition state (Zustand) ── */
+  const comp = useCompStore((s) => s.comp);
+  const compActiveTarget = useCompStore((s) => s.activeTarget);
+  const setCompModel = useCompStore((s) => s.setModel);
+  const compAddTag = useCompStore((s) => s.addTag);
+
+  /* settings.model と comp.model を同期する。Header から model を切替えると
+     settings 側だけ更新されるので、ここで comp に反映。 */
+  useEffect(() => {
+    if (comp.model !== model) setCompModel(model);
+  }, [model, comp.model, setCompModel]);
+
+  const setModel = (next) => {
+    setModelSetting(next);
+    setCompModel(next);
+  };
 
   /* ── ui state (local) ── */
   const [tab, setTab] = useState("select");
@@ -141,8 +160,19 @@ export default function App() {
     if (!sortedCats.find(c => c.id === saveNegCatId)) setSaveNegCatId(sortedCats[0].id);
   }, [sortedCats, savePosCatId, saveNegCatId]);
 
-  /* ── selection ops ── */
-  const toggleSel = (id) => toggleSelStore(id, addMode);
+  /* ── selection ops ──
+     V3 モードでは sels をトグル、V4/V4.5 モードでは Composition の
+     activeTarget にプロンプトを追加する（クリック1回で1個追加）。 */
+  const toggleSel = (id) => {
+    if (!useV4) { toggleSelStore(id, addMode); return; }
+    const p = prompts.find((x) => x.id === id);
+    if (!p) return;
+    const target = compActiveTarget?.kind
+      ? { ...compActiveTarget, neg: addMode === "negative" }
+      : { kind: "base", neg: addMode === "negative" };
+    compAddTag(target, makeTag(p.prompt));
+    flash(`「${p.label || p.prompt}」を追加しました`);
+  };
 
   /* ── prompt CRUD wrappers ── */
   const addPromptItem = () => {
@@ -223,11 +253,19 @@ export default function App() {
       .sort((a, b) => (catOrder.get(a.p.catId) ?? 999) - (catOrder.get(b.p.catId) ?? 999));
   }, [sels, prompts, sortedCats]);
 
-  const { pos: posOut, neg: negOut } = useMemo(
-    () => serialize({ cats, prompts, sels }, model),
-    [cats, prompts, sels, model]
+  const useV4 = model === "v4" || model === "v4.5";
+  const serializedOut = useMemo(
+    () => useV4
+      ? serializeComposition(comp)
+      : serialize({ cats, prompts, sels }, model),
+    [useV4, comp, cats, prompts, sels, model]
   );
-  const selCount = Object.keys(sels).length;
+  const posOut = serializedOut.pos;
+  const negOut = serializedOut.neg;
+  const selCount = useV4
+    ? (comp.base.positives.length + comp.base.negatives.length +
+       comp.characters.reduce((acc, c) => acc + c.positives.length + c.negatives.length, 0))
+    : Object.keys(sels).length;
 
   /* ── save completed prompts as new entries in chosen prompt categories ── */
   const saveOutput = () => {
@@ -459,6 +497,10 @@ export default function App() {
               />
             )}
 
+            {tab === "compose" && (
+              <ComposerRoot />
+            )}
+
             {tab === "manage" && (
               <ManageTab
                 sortedCats={sortedCats}
@@ -561,6 +603,7 @@ export default function App() {
           flipSel={flipSel}
           removeSel={removeSel}
           clearAll={clearAll}
+          useV4={useV4}
         />
       </div>
 

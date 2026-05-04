@@ -1,9 +1,8 @@
 export default function Header({ tab, setTab, setSearch, model, setModel }) {
-  // 現状 V3 のみ実装。V4 / V4.5 は P3 / P4 で有効化する。
   const models = [
     { id: "v3", label: "V3", enabled: true },
-    { id: "v4", label: "V4", enabled: false },
-    { id: "v4.5", label: "V4.5", enabled: false },
+    { id: "v4", label: "V4", enabled: true },
+    { id: "v4.5", label: "V4.5", enabled: true },
   ];
   return (
     <div style={{ padding: `calc(12px + var(--safe-t)) 16px 10px`, flexShrink: 0, borderBottom: "1px solid var(--bdr)" }}>
@@ -34,7 +33,7 @@ export default function Header({ tab, setTab, setSearch, model, setModel }) {
         )}
 
         <div style={{ marginLeft: "auto", display: "flex", gap: 3, background: "var(--bg2)", borderRadius: 10, padding: 3 }}>
-          {[["select", "選択"], ["manage", "追加・管理"], ["output", "出力"]].map(([k, v]) => (
+          {[["select", "選択"], ["compose", "🪄 V4作成"], ["manage", "追加・管理"], ["output", "出力"]].map(([k, v]) => (
             <button key={k} onClick={() => { setTab(k); setSearch(""); }} style={{
               padding: "8px 16px", borderRadius: 8, fontSize: 14, fontWeight: 500,
               background: tab === k ? "var(--acc)" : "transparent",
