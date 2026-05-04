@@ -1,129 +1,19 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import storage from "./storage";
 import { isExtension, sendToNovelAI, pickTarget, resetTargets } from "./extension/bridge";
-
-const uid = () => Math.random().toString(36).slice(2, 10);
-const now = () =>
-  new Date().toLocaleString("ja-JP", {
-    year: "numeric", month: "2-digit", day: "2-digit",
-    hour: "2-digit", minute: "2-digit",
-  });
-
-const INIT_CATS = [
-  { id: "char", name: "キャラクター", order: 0, tags: [] },
-  { id: "expr", name: "表情", order: 1, tags: [] },
-  { id: "act", name: "行為", order: 2, tags: [] },
-  { id: "outfit", name: "服装", order: 3, tags: [] },
-  { id: "place", name: "場所", order: 4, tags: [] },
-  { id: "comp", name: "構図", order: 5, tags: [] },
-  { id: "light", name: "光・色調", order: 6, tags: [] },
-  { id: "quality", name: "品質", order: 7, tags: [] },
-];
-
-const INIT_PROMPTS = [
-  { id: "p1", catId: "char", prompt: "1girl", label: "女の子", tagIds: [], order: 0 },
-  { id: "p2", catId: "char", prompt: "1boy", label: "男の子", tagIds: [], order: 1 },
-  { id: "p3", catId: "char", prompt: "blonde hair", label: "金髪", tagIds: [], order: 2 },
-  { id: "p4", catId: "expr", prompt: "smile", label: "笑顔", tagIds: [], order: 0 },
-  { id: "p5", catId: "expr", prompt: "crying", label: "泣き", tagIds: [], order: 1 },
-  { id: "p6", catId: "act", prompt: "standing", label: "立ち", tagIds: [], order: 0 },
-  { id: "p7", catId: "act", prompt: "jumping", label: "ジャンプ", tagIds: [], order: 1 },
-  { id: "p8", catId: "outfit", prompt: "school uniform", label: "制服", tagIds: [], order: 0 },
-  { id: "p9", catId: "outfit", prompt: "dress", label: "ドレス", tagIds: [], order: 1 },
-  { id: "p10", catId: "place", prompt: "classroom", label: "教室", tagIds: [], order: 0 },
-  { id: "p11", catId: "place", prompt: "forest", label: "森", tagIds: [], order: 1 },
-  { id: "p12", catId: "comp", prompt: "close-up", label: "アップ", tagIds: [], order: 0 },
-  { id: "p13", catId: "comp", prompt: "full body", label: "全身", tagIds: [], order: 1 },
-  { id: "p14", catId: "light", prompt: "dramatic lighting", label: "ドラマチック", tagIds: [], order: 0 },
-  { id: "p15", catId: "quality", prompt: "masterpiece", label: "傑作", tagIds: [], order: 0 },
-  { id: "p16", catId: "quality", prompt: "best quality", label: "最高品質", tagIds: [], order: 1 },
-  { id: "p17", catId: "quality", prompt: "lowres", label: "低解像度", tagIds: [], order: 2 },
-  { id: "p18", catId: "quality", prompt: "bad anatomy", label: "破綻", tagIds: [], order: 3 },
-];
-
-const PRESET_COLORS = [
-  { hex: "", name: "デフォルト" },
-  { hex: "#38bdf8", name: "ブルー" },
-  { hex: "#34d399", name: "グリーン" },
-  { hex: "#fbbf24", name: "ゴールド" },
-  { hex: "#fb7185", name: "ピンク" },
-  { hex: "#a78bfa", name: "パープル" },
-  { hex: "#22d3ee", name: "シアン" },
-  { hex: "#f97316", name: "オレンジ" },
-  { hex: "#94a3b8", name: "グレー" },
-];
-
-const catColor = (c) => c?.color || "var(--acc)";
-
-const wrap = (text, w) => {
-  let r = text;
-  if (w > 0) for (let i = 0; i < w; i++) r = "{" + r + "}";
-  if (w < 0) for (let i = 0; i < -w; i++) r = "[" + r + "]";
-  return r;
-};
-
-const SK = "nai-pg-v3";
-const SK_SAVED = "nai-pg-saved-v3";
-const SK_SETTINGS = "nai-pg-settings-v3";
-const SK_OLD = "nai-pg-v2";
-const SK_SAVED_OLD = "nai-pg-saved-v2";
-
-const sortByOrder = (arr) => [...arr].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-
-const assignPromptOrders = (arr) => {
-  const counters = {};
-  return arr.map(p => {
-    if (typeof p.order === "number") return p;
-    const c = counters[p.catId] = (counters[p.catId] ?? -1) + 1;
-    return { ...p, order: c };
-  });
-};
-
-/**
- * 旧 SK_SAVED 形式 (savedCats/saved の二段構造) を新形式に移行する。
- * 旧 saved の各エントリを、対応する savedCat 名と同名のプロンプトカテゴリに
- * 通常プロンプトとして追加する。同名カテゴリがなければ新規作成。
- */
-const migrateOldSavedToPrompts = (savedData, cats, prompts) => {
-  if (!savedData || typeof savedData !== "object") return null;
-  const oldSavedCats = Array.isArray(savedData.savedCats) ? savedData.savedCats : [];
-  const oldSaved = Array.isArray(savedData.saved) ? savedData.saved : Array.isArray(savedData) ? savedData : [];
-  if (!oldSaved.length) return null;
-  const newCats = [...cats];
-  const newPrompts = [...prompts];
-  for (const s of oldSaved) {
-    const sc = oldSavedCats.find(c => c.id === s.savedCatId);
-    const fallback = sc?.id === "default" || !sc ? "完成プロンプト" : sc.name;
-    const targetName = fallback;
-    let cat = newCats.find(c => c.name === targetName);
-    if (!cat) {
-      cat = { id: uid(), name: targetName, order: newCats.length, tags: [], color: "" };
-      newCats.push(cat);
-    }
-    const baseName = (s.name || "完成プロンプト").trim();
-    const addEntry = (text, label) => {
-      if (!text) return;
-      const order = newPrompts.filter(p => p.catId === cat.id).length;
-      newPrompts.push({ id: uid(), catId: cat.id, prompt: text, label, tagIds: [], order });
-    };
-    if (s.pos && s.neg) { addEntry(s.pos, `${baseName}_⊕`); addEntry(s.neg, `${baseName}_⊖`); }
-    else if (s.pos) addEntry(s.pos, baseName);
-    else if (s.neg) addEntry(s.neg, baseName);
-  }
-  return { cats: newCats, prompts: newPrompts };
-};
-
-const Btn = ({ children, on, bg, color, border, small, disabled, style, ...rest }) => (
-  <button disabled={disabled} onClick={on} style={{
-    padding: small ? "6px 12px" : "10px 18px", borderRadius: small ? 6 : 8,
-    fontSize: small ? 12 : 14, fontWeight: 600, whiteSpace: "nowrap",
-    background: bg || "var(--bg2)", color: color || "var(--dim)",
-    border: border || "1px solid var(--bdr)", opacity: disabled ? 0.4 : 1,
-    cursor: disabled ? "not-allowed" : "pointer", transition: "all .15s",
-    WebkitTapHighlightColor: "transparent", touchAction: "manipulation",
-    ...style,
-  }} {...rest}>{children}</button>
-);
+import { uid, sortByOrder, assignPromptOrders, wrap } from "./lib/utils";
+import { migrateOldSavedToPrompts } from "./lib/migrate";
+import {
+  INIT_CATS, INIT_PROMPTS,
+  SK, SK_SAVED, SK_SETTINGS, SK_OLD, SK_SAVED_OLD,
+} from "./lib/constants";
+import GlobalStyles from "./components/Common/GlobalStyles";
+import Header from "./components/Common/Header";
+import Toast from "./components/Common/Toast";
+import SelectTab from "./components/Library/SelectTab";
+import ManageTab from "./components/Library/ManageTab";
+import OutputTab from "./components/Output/OutputTab";
+import SelectionBar from "./components/Output/SelectionBar";
 
 export default function App() {
   /* ── core state ── */
@@ -605,477 +495,142 @@ export default function App() {
   /* ════════ RENDER ════════ */
   return (
     <>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=M+PLUS+1:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
-        :root{--bg0:#0b0e14;--bg1:#111620;--bg2:#1a2030;--bdr:#2a3548;--txt:#e2e8f0;--dim:#7a8a9e;
-          --pos:#34d399;--posBg:#064e3b;--posBdr:#047857;--neg:#fb7185;--negBg:#4c0519;--negBdr:#be123c;
-          --acc:#38bdf8;--accDim:#0c4a6e;--gold:#fbbf24;--goldBg:#451a03;--goldBdr:#b45309;
-          --safe-b:env(safe-area-inset-bottom,0px);--safe-t:env(safe-area-inset-top,0px)}
-        *{box-sizing:border-box;margin:0;padding:0}
-        html{height:100%;overflow:hidden}
-        body{background:var(--bg0);color:var(--txt);font-family:'M PLUS 1','Hiragino Sans','Meiryo',sans-serif;
-          height:100%;overflow:hidden;overscroll-behavior:none;-webkit-text-size-adjust:100%}
-        #root{height:100%;overflow:hidden;display:flex;flex-direction:column}
-        .mono{font-family:'JetBrains Mono','Menlo',monospace}
-        input,textarea,select{background:var(--bg0);border:1px solid var(--bdr);color:var(--txt);border-radius:8px;
-          padding:10px 14px;font-family:inherit;font-size:16px;outline:none;transition:border-color .2s;width:100%;
-          -webkit-appearance:none;appearance:none}
-        input:focus,textarea:focus{border-color:var(--acc)}
-        select{cursor:pointer;padding-right:30px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%237a8a9e' d='M2 4l4 4 4-4'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center}
-        button{font-family:inherit;cursor:pointer;border:none;transition:all .15s;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
-        ::-webkit-scrollbar{width:4px;height:4px} ::-webkit-scrollbar-track{background:transparent} ::-webkit-scrollbar-thumb{background:var(--bdr);border-radius:2px}
-        @keyframes fi{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}} .fi{animation:fi .22s ease-out}
-        @keyframes pop{0%{transform:scale(.94);opacity:.6}100%{transform:scale(1);opacity:1}} .pop{animation:pop .15s ease-out}
-        @media(min-width:1024px){.main-content{display:grid;grid-template-columns:200px 1fr;gap:0}}
-      `}</style>
+      <GlobalStyles />
 
       <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
 
-        {/* HEADER */}
-        <div style={{ padding: `calc(12px + var(--safe-t)) 16px 10px`, flexShrink: 0, borderBottom: "1px solid var(--bdr)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, maxWidth: 960, margin: "0 auto", flexWrap: "wrap" }}>
-            <span style={{ fontSize: 20, fontWeight: 700, letterSpacing: "-.5px", color: "var(--acc)" }}>NAI</span>
-            <span style={{ fontSize: 14, color: "var(--dim)" }}>Prompt Generator</span>
-            <div style={{ marginLeft: "auto", display: "flex", gap: 3, background: "var(--bg2)", borderRadius: 10, padding: 3 }}>
-              {[["select","選択"],["manage","追加・管理"],["output","出力"]].map(([k,v])=>(
-                <button key={k} onClick={()=>{setTab(k);setSearch("")}} style={{
-                  padding:"8px 16px",borderRadius:8,fontSize:14,fontWeight:500,
-                  background:tab===k?"var(--acc)":"transparent",color:tab===k?"#0b0e14":"var(--dim)",
-                }}>{v}</button>
-              ))}
-            </div>
-          </div>
-        </div>
+        <Header tab={tab} setTab={setTab} setSearch={setSearch} />
 
         {/* SCROLLABLE CONTENT */}
         <div style={{ flex: 1, overflow: "auto", WebkitOverflowScrolling: "touch", paddingBottom: barPad }}>
           <div style={{ maxWidth: 960, margin: "0 auto", padding: "14px 16px" }}>
 
-          {/* ═══ SELECT ═══ */}
-          {tab==="select"&&(
-            <div className="fi">
-              {/* category tabs */}
-              <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:10,marginBottom:10,WebkitOverflowScrolling:"touch"}}>
-                {sortedCats.map((c)=>{
-                  const cnt=prompts.filter(p=>p.catId===c.id&&sels[p.id]).length;
-                  const a=activeCat===c.id;
-                  const col=catColor(c);
-                  return(<button key={c.id} onClick={()=>{setActiveCat(c.id);setSearch("");setTagFilter([])}} style={{
-                    padding:"8px 16px",borderRadius:20,fontSize:14,fontWeight:500,whiteSpace:"nowrap",display:"inline-flex",alignItems:"center",gap:6,
-                    background:a?"var(--accDim)":"var(--bg2)",color:a?col:"var(--dim)",
-                    border:a?`1px solid ${col}`:"1px solid var(--bdr)",
-                  }}>
-                    {c.color&&<span style={{display:"inline-block",width:8,height:8,borderRadius:"50%",background:c.color,flexShrink:0}}/>}
-                    {c.name}{cnt>0&&<span style={{marginLeft:2,fontSize:11,opacity:.7}}>({cnt})</span>}
-                  </button>);
-                })}
-              </div>
-
-              {/* mode toggle (insert as positive/negative) */}
-              <div style={{display:"flex",gap:8,marginBottom:10,alignItems:"center",flexWrap:"wrap"}}>
-                <span style={{fontSize:13,color:"var(--dim)"}}>追加モード:</span>
-                {[["positive","⊕ ポジティブ","--pos","--posBg","--posBdr"],["negative","⊖ ネガティブ","--neg","--negBg","--negBdr"]].map(([k,l,c,bg,bd])=>(
-                  <button key={k} onClick={()=>setAddMode(k)} style={{
-                    padding:"6px 14px",borderRadius:18,fontSize:13,fontWeight:600,
-                    background:addMode===k?`var(${bg})`:"var(--bg2)",color:addMode===k?`var(${c})`:"var(--dim)",
-                    border:addMode===k?`2px solid var(${bd})`:"1px solid var(--bdr)",
-                  }}>{l}</button>
-                ))}
-              </div>
-
-              {/* tag filter */}
-              {activeCatObj && (activeCatObj.tags||[]).length>0 && (
-                <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10,alignItems:"center"}}>
-                  <span style={{fontSize:12,color:"var(--dim)"}}>タグ:</span>
-                  <button onClick={()=>setTagFilter([])} style={{
-                    padding:"4px 10px",borderRadius:14,fontSize:12,fontWeight:500,
-                    background:tagFilter.length===0?"var(--accDim)":"var(--bg2)",
-                    color:tagFilter.length===0?"var(--acc)":"var(--dim)",
-                    border:tagFilter.length===0?"1px solid var(--acc)":"1px solid var(--bdr)",
-                  }}>すべて</button>
-                  {(activeCatObj.tags||[]).map(t=>{
-                    const a=tagFilter.includes(t.id);
-                    return <button key={t.id} onClick={()=>setTagFilter(tf=>tf.includes(t.id)?tf.filter(x=>x!==t.id):[...tf,t.id])} style={{
-                      padding:"4px 10px",borderRadius:14,fontSize:12,fontWeight:500,
-                      background:a?"var(--accDim)":"var(--bg2)",color:a?"var(--acc)":"var(--dim)",
-                      border:a?"1px solid var(--acc)":"1px solid var(--bdr)",
-                    }}>#{t.name}</button>;
-                  })}
-                </div>
-              )}
-
-              <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="検索..." style={{marginBottom:14}}/>
-              <div style={{display:"flex",flexWrap:"wrap",gap:10,minHeight:60}}>
-                {filteredSelect.length===0&&<span style={{color:"var(--dim)",fontSize:14,padding:12}}>プロンプトがありません</span>}
-                {filteredSelect.map((p)=>{
-                  const sel=sels[p.id];
-                  const tagNames=(p.tagIds||[]).map(tid=>(activeCatObj?.tags||[]).find(t=>t.id===tid)?.name).filter(Boolean);
-                  return(<button key={p.id}
-                    onClick={()=>toggleSel(p.id)}
-                    onDoubleClick={(e)=>{e.preventDefault();copyText(p.prompt,p.label)}}
-                    title="クリック: 選択／ダブルクリック: コピー"
-                    className={sel?"pop":""} style={{
-                      padding:"10px 16px",borderRadius:10,fontSize:14,fontWeight:500,
-                      border:sel?`2px solid ${sel.neg?"var(--negBdr)":"var(--posBdr)"}`:"1px solid var(--bdr)",
-                      background:sel?(sel.neg?"var(--negBg)":"var(--posBg)"):"var(--bg2)",
-                      color:sel?(sel.neg?"var(--neg)":"var(--pos)"):"var(--txt)",
-                      borderLeft:activeCatObj?.color?`4px solid ${activeCatObj.color}`:undefined,
-                      display:"inline-flex",alignItems:"center",gap:6,
-                  }}>
-                    <span style={{fontSize:12,opacity:.6}}>{sel?(sel.neg?"⊖":"⊕"):"·"}</span>
-                    <span>{p.label}</span>
-                    <span className="mono" style={{fontSize:11,opacity:.4}}>{p.prompt}</span>
-                    {tagNames.length>0&&<span style={{fontSize:10,opacity:.5}}>{tagNames.map(n=>"#"+n).join(" ")}</span>}
-                    <span style={{fontSize:10,opacity:.4,marginLeft:2}}>📋</span>
-                  </button>);
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* ═══ MANAGE ═══ */}
-          {tab==="manage"&&(
-            <div className="fi">
-              {/* Add prompt section */}
-              <div style={{background:"var(--bg2)",borderRadius:12,padding:16,marginBottom:18,border:"1px solid var(--bdr)"}}>
-                <div style={{fontSize:15,fontWeight:600,marginBottom:10}}>プロンプト追加</div>
-                <select value={manageCat} onChange={e=>setManageCat(e.target.value)} style={{marginBottom:10,width:"auto",minWidth:160}}>
-                  {sortedCats.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
-                <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
-                  <Btn on={()=>handleEmphasis("{","}")} bg="var(--posBg)" color="var(--pos)" border="1px solid var(--posBdr)" small>{"{ } 強調"}</Btn>
-                  <Btn on={()=>handleEmphasis("{{","}}")} bg="var(--posBg)" color="var(--pos)" border="1px solid var(--posBdr)" small>{"{{ }} ×2"}</Btn>
-                  <Btn on={()=>handleEmphasis("[","]")} bg="var(--negBg)" color="var(--neg)" border="1px solid var(--negBdr)" small>{"[ ] 弱化"}</Btn>
-                  <Btn on={stripOuter} small>括弧除去</Btn>
-                </div>
-                <textarea ref={promptRef} value={newPrompt} onChange={e=>setNewPrompt(e.target.value)} placeholder="プロンプト (英語)　例: jumping" rows={2}
-                  style={{fontFamily:"'JetBrains Mono','Menlo',monospace",fontSize:15,marginBottom:8,resize:"vertical"}}/>
-                {newPrompt&&(<div style={{marginBottom:8,padding:"6px 12px",borderRadius:8,background:"var(--bg0)",fontSize:14}}>
-                  <span style={{color:"var(--dim)",marginRight:6}}>プレビュー:</span>
-                  <span className="mono">{newPrompt}</span>
-                </div>)}
-                <div style={{display:"flex",gap:8,marginBottom:10}}>
-                  <input value={newLabel} onChange={e=>setNewLabel(e.target.value)} placeholder="表示名 (日本語)　例: ジャンプ"/>
-                </div>
-
-                {/* tags chooser for new prompt */}
-                <div style={{marginBottom:10}}>
-                  <div style={{fontSize:12,color:"var(--dim)",marginBottom:6}}>タグ ({manageCatObj?.name} 用)</div>
-                  <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:6}}>
-                    {(manageCatObj?.tags||[]).length===0&&<span style={{fontSize:12,color:"var(--dim)"}}>既存タグなし — 下から作成</span>}
-                    {(manageCatObj?.tags||[]).map(t=>{
-                      const a=newPromptTagIds.includes(t.id);
-                      return <button key={t.id} onClick={()=>setNewPromptTagIds(arr=>arr.includes(t.id)?arr.filter(x=>x!==t.id):[...arr,t.id])} style={{
-                        padding:"4px 10px",borderRadius:14,fontSize:12,fontWeight:500,
-                        background:a?"var(--accDim)":"var(--bg2)",color:a?"var(--acc)":"var(--dim)",
-                        border:a?"1px solid var(--acc)":"1px solid var(--bdr)",
-                      }}>#{t.name}</button>;
-                    })}
-                  </div>
-                  <div style={{display:"flex",gap:6}}>
-                    <input value={newPromptTagInput} onChange={e=>setNewPromptTagInput(e.target.value)}
-                      onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();quickAddTagForNew()}}}
-                      placeholder="新規タグ名（Enter または +）" style={{fontSize:14}}/>
-                    <Btn on={quickAddTagForNew} small>＋ 新規タグ</Btn>
-                  </div>
-                </div>
-
-                <Btn on={addPromptItem} bg="var(--acc)" color="#000" border="none">追加</Btn>
-              </div>
-
-              {/* Existing prompts list */}
-              <div style={{marginBottom:18}}>
-                <div style={{display:"flex",gap:8,marginBottom:8,alignItems:"center",flexWrap:"wrap"}}>
-                  <span style={{fontSize:15,fontWeight:600}}>登録済みプロンプト</span>
-                  <select value={manageCat} onChange={e=>setManageCat(e.target.value)} style={{marginLeft:"auto",width:"auto",fontSize:14}}>
-                    {sortedCats.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
-                </div>
-                <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="検索..." style={{marginBottom:8}}/>
-                <div style={{display:"flex",flexDirection:"column",gap:5,maxHeight:400,overflowY:"auto"}}>
-                  {filteredManage.length===0&&<span style={{color:"var(--dim)",fontSize:14}}>プロンプトなし</span>}
-                  {filteredManage.map((p,idx)=>{
-                    const tagNames=(p.tagIds||[]).map(tid=>(manageCatObj?.tags||[]).find(t=>t.id===tid)?.name).filter(Boolean);
-                    const reorderDisabled=!!search;
-                    return (
-                    <div key={p.id} style={{display:"flex",flexDirection:"column",gap:6,padding:"10px 12px",borderRadius:8,background:"var(--bg2)",borderLeft:`3px solid ${manageCatObj?.color||"var(--accDim)"}`}}>
-                      {editId===p.id?(
-                        <>
-                          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                            <input value={editPrompt} onChange={e=>setEditPrompt(e.target.value)} style={{flex:1,minWidth:160,fontSize:14}}/>
-                            <input value={editLabel} onChange={e=>setEditLabel(e.target.value)} style={{width:140,fontSize:14}}/>
-                          </div>
-                          <div>
-                            <div style={{fontSize:12,color:"var(--dim)",marginBottom:4}}>タグ</div>
-                            <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:6}}>
-                              {(manageCatObj?.tags||[]).map(t=>{
-                                const a=editTagIds.includes(t.id);
-                                return <button key={t.id} onClick={()=>setEditTagIds(arr=>arr.includes(t.id)?arr.filter(x=>x!==t.id):[...arr,t.id])} style={{
-                                  padding:"4px 10px",borderRadius:14,fontSize:12,
-                                  background:a?"var(--accDim)":"var(--bg2)",color:a?"var(--acc)":"var(--dim)",
-                                  border:a?"1px solid var(--acc)":"1px solid var(--bdr)",
-                                }}>#{t.name}</button>;
-                              })}
-                            </div>
-                            <div style={{display:"flex",gap:6}}>
-                              <input value={editTagInput} onChange={e=>setEditTagInput(e.target.value)}
-                                onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();quickAddTagForEdit(p.catId)}}}
-                                placeholder="新規タグ名" style={{fontSize:13}}/>
-                              <Btn on={()=>quickAddTagForEdit(p.catId)} small>＋ 新規</Btn>
-                            </div>
-                          </div>
-                          <div style={{display:"flex",gap:6,justifyContent:"flex-end"}}>
-                            <Btn on={()=>saveEdit(p.id)} bg="var(--acc)" color="#000" border="none" small>保存</Btn>
-                            <Btn on={()=>setEditId(null)} small>取消</Btn>
-                          </div>
-                        </>
-                      ):(
-                        <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-                          <Btn on={()=>movePromptItem(p.id,-1)} disabled={reorderDisabled||idx===0} small style={{padding:"4px 8px"}} title={reorderDisabled?"検索中は並び替え不可":"上へ"}>↑</Btn>
-                          <Btn on={()=>movePromptItem(p.id,1)} disabled={reorderDisabled||idx===filteredManage.length-1} small style={{padding:"4px 8px"}} title={reorderDisabled?"検索中は並び替え不可":"下へ"}>↓</Btn>
-                          <span className="mono" style={{fontSize:14,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis"}}>{p.prompt}</span>
-                          <span style={{fontSize:13,color:"var(--dim)",flexShrink:0}}>{p.label}</span>
-                          {tagNames.length>0&&<span style={{fontSize:11,color:"var(--acc)",opacity:.7}}>{tagNames.map(n=>"#"+n).join(" ")}</span>}
-                          <Btn on={()=>copyText(p.prompt,p.label)} small>コピー</Btn>
-                          <Btn on={()=>startEdit(p)} small>編集</Btn>
-                          <Btn on={()=>deletePrompt(p.id)} bg="var(--negBg)" color="var(--neg)" border="1px solid var(--negBdr)" small>削除</Btn>
-                        </div>
-                      )}
-                    </div>
-                  );})}
-                </div>
-              </div>
-
-              {/* Category management */}
-              <div style={{background:"var(--bg2)",borderRadius:12,padding:16,marginBottom:18,border:"1px solid var(--bdr)"}}>
-                <div style={{fontSize:15,fontWeight:600,marginBottom:10}}>カテゴリ管理</div>
-                <div style={{display:"flex",gap:8,marginBottom:12}}>
-                  <input value={newCatName} onChange={e=>setNewCatName(e.target.value)} placeholder="新しいカテゴリ名"/>
-                  <Btn on={addCategory} bg="var(--acc)" color="#000" border="none">追加</Btn>
-                </div>
-                <div style={{display:"flex",flexDirection:"column",gap:5}}>
-                  {sortedCats.map((c,idx)=>(
-                    <div key={c.id} style={{display:"flex",flexDirection:"column",gap:6,padding:"8px 12px",borderRadius:8,background:"var(--bg0)",borderLeft:c.color?`3px solid ${c.color}`:"3px solid transparent"}}>
-                      {renameCatId===c.id?(
-                        <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-                          <input value={renameCatName} onChange={e=>setRenameCatName(e.target.value)} style={{flex:1,fontSize:14}}/>
-                          <Btn on={()=>renameCategory(c.id)} bg="var(--acc)" color="#000" border="none" small>保存</Btn>
-                          <Btn on={()=>setRenameCatId(null)} small>取消</Btn>
-                        </div>
-                      ):(
-                        <>
-                          <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-                            <Btn on={()=>moveCat(c.id,-1)} disabled={idx===0} small style={{padding:"6px 8px"}}>↑</Btn>
-                            <Btn on={()=>moveCat(c.id,1)} disabled={idx===sortedCats.length-1} small style={{padding:"6px 8px"}}>↓</Btn>
-                            <span style={{flex:1,fontSize:14,minWidth:120,display:"inline-flex",alignItems:"center",gap:6}}>
-                              {c.color&&<span style={{display:"inline-block",width:10,height:10,borderRadius:"50%",background:c.color}}/>}
-                              {c.name}
-                            </span>
-                            <span style={{fontSize:12,color:"var(--dim)"}}>{prompts.filter(p=>p.catId===c.id).length}件 / タグ{(c.tags||[]).length}</span>
-                            <Btn on={()=>{setRenameCatId(c.id);setRenameCatName(c.name)}} small>名前変更</Btn>
-                            <Btn on={()=>{if(confirm(`「${c.name}」と中のプロンプトを全削除しますか？`))deleteCategory(c.id)}} bg="var(--negBg)" color="var(--neg)" border="1px solid var(--negBdr)" small>削除</Btn>
-                          </div>
-                          <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-                            <span style={{fontSize:11,color:"var(--dim)"}}>色:</span>
-                            {PRESET_COLORS.map(pc=>(
-                              <button key={pc.hex||"none"} onClick={()=>setCatColor(c.id,pc.hex)} title={pc.name} style={{
-                                width:22,height:22,borderRadius:"50%",cursor:"pointer",
-                                background:pc.hex||"transparent",
-                                border:(c.color||"")===pc.hex?"2px solid var(--txt)":"1px solid var(--bdr)",
-                                position:"relative",
-                              }}>{!pc.hex&&<span style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,color:"var(--dim)"}}>×</span>}</button>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Tag management for current category */}
-              {manageCatObj&&(
-                <div style={{background:"var(--bg2)",borderRadius:12,padding:16,marginBottom:18,border:"1px solid var(--bdr)"}}>
-                  <div style={{fontSize:15,fontWeight:600,marginBottom:10}}>タグ管理（{manageCatObj.name}）</div>
-                  <div style={{display:"flex",gap:8,marginBottom:12}}>
-                    <input value={newTagName} onChange={e=>setNewTagName(e.target.value)}
-                      onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();addTag()}}}
-                      placeholder="新しいタグ名"/>
-                    <Btn on={addTag} bg="var(--acc)" color="#000" border="none">追加</Btn>
-                  </div>
-                  <div style={{display:"flex",flexDirection:"column",gap:5}}>
-                    {(manageCatObj.tags||[]).length===0&&<span style={{color:"var(--dim)",fontSize:13}}>タグなし</span>}
-                    {(manageCatObj.tags||[]).map(t=>(
-                      <div key={t.id} style={{display:"flex",alignItems:"center",gap:6,padding:"8px 12px",borderRadius:8,background:"var(--bg0)",flexWrap:"wrap"}}>
-                        {renameTagId===t.id?(
-                          <>
-                            <input value={renameTagName} onChange={e=>setRenameTagName(e.target.value)} style={{flex:1,fontSize:14}}/>
-                            <Btn on={()=>renameTag(manageCatObj.id,t.id)} bg="var(--acc)" color="#000" border="none" small>保存</Btn>
-                            <Btn on={()=>setRenameTagId(null)} small>取消</Btn>
-                          </>
-                        ):(
-                          <>
-                            <span style={{flex:1,fontSize:14,minWidth:120}}>#{t.name}</span>
-                            <span style={{fontSize:12,color:"var(--dim)"}}>{tagCount(manageCatObj.id,t.id)}件使用</span>
-                            <Btn on={()=>{setRenameTagId(t.id);setRenameTagName(t.name)}} small>名前変更</Btn>
-                            <Btn on={()=>{if(confirm(`タグ「${t.name}」を削除しますか？`))deleteTag(manageCatObj.id,t.id)}} bg="var(--negBg)" color="var(--neg)" border="1px solid var(--negBdr)" small>削除</Btn>
-                          </>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* export/import */}
-              <div style={{background:"var(--bg2)",borderRadius:12,padding:16,border:"1px solid var(--bdr)"}}>
-                <div style={{fontSize:15,fontWeight:600,marginBottom:10}}>プロンプト一覧の書き出し／読み込み</div>
-                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                  <Btn on={exportList}>📥 書き出し (JSON)</Btn>
-                  <label style={{padding:"10px 18px",borderRadius:8,fontSize:14,fontWeight:600,cursor:"pointer",background:"var(--bg2)",color:"var(--dim)",border:"1px solid var(--bdr)",display:"inline-flex",alignItems:"center"}}>
-                    📤 置換読み込み
-                    <input type="file" accept=".json" style={{display:"none"}} onChange={importList}/>
-                  </label>
-                  <label style={{padding:"10px 18px",borderRadius:8,fontSize:14,fontWeight:600,cursor:"pointer",background:"var(--accDim)",color:"var(--acc)",border:"1px solid var(--acc)",display:"inline-flex",alignItems:"center"}}>
-                    ➕ マージ読み込み
-                    <input type="file" accept=".json" style={{display:"none"}} onChange={importListMerge}/>
-                  </label>
-                </div>
-                <div style={{fontSize:12,color:"var(--dim)",marginTop:8}}>
-                  ・置換: 現在のデータが完全に置き換わります<br/>
-                  ・マージ: 既存に追加。同名カテゴリ／タグは統合、同じ英文＋表示名のプロンプトはスキップします
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ═══ OUTPUT ═══ */}
-          {tab==="output"&&(
-            <div className="fi">
-              <div style={{marginBottom:16}}>
-                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
-                  <span style={{fontSize:15,fontWeight:600,color:"var(--pos)"}}>⊕ ポジティブ</span>
-                  <Btn on={()=>copyText(posOut,"ポジティブ")} disabled={!posOut} bg={posOut?"var(--posBdr)":undefined} color={posOut?"#fff":undefined} border="none" small style={{marginLeft:"auto"}}>コピー</Btn>
-                </div>
-                <div className="mono" onDoubleClick={()=>copyText(posOut,"ポジティブ")} title="ダブルクリックでコピー" style={{padding:14,borderRadius:10,fontSize:14,lineHeight:1.7,minHeight:50,wordBreak:"break-all",background:"var(--bg2)",border:"1px solid var(--posBdr)",color:"var(--pos)",userSelect:"all",WebkitUserSelect:"all",cursor:posOut?"pointer":"default"}}>{posOut||<span style={{opacity:.35}}>（未選択）</span>}</div>
-              </div>
-              <div style={{marginBottom:20}}>
-                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
-                  <span style={{fontSize:15,fontWeight:600,color:"var(--neg)"}}>⊖ ネガティブ</span>
-                  <Btn on={()=>copyText(negOut,"ネガティブ")} disabled={!negOut} bg={negOut?"var(--negBdr)":undefined} color={negOut?"#fff":undefined} border="none" small style={{marginLeft:"auto"}}>コピー</Btn>
-                </div>
-                <div className="mono" onDoubleClick={()=>copyText(negOut,"ネガティブ")} title="ダブルクリックでコピー" style={{padding:14,borderRadius:10,fontSize:14,lineHeight:1.7,minHeight:50,wordBreak:"break-all",background:"var(--bg2)",border:"1px solid var(--negBdr)",color:"var(--neg)",userSelect:"all",WebkitUserSelect:"all",cursor:negOut?"pointer":"default"}}>{negOut||<span style={{opacity:.35}}>（未選択）</span>}</div>
-              </div>
-
-              {/* Send to NovelAI (extension only) */}
-              {isExtension&&(
-                <div style={{background:"var(--bg2)",borderRadius:12,padding:16,marginBottom:18,border:"1px solid var(--acc)"}}>
-                  <div style={{fontSize:15,fontWeight:600,marginBottom:10,color:"var(--acc)"}}>🪄 NovelAI へ送信</div>
-                  <div style={{display:"flex",gap:8,marginBottom:10,alignItems:"center",flexWrap:"wrap"}}>
-                    <span style={{fontSize:13,color:"var(--dim)"}}>送信モード:</span>
-                    {[["overwrite","上書き"],["append","末尾追加"]].map(([k,l])=>(
-                      <button key={k} onClick={()=>setSendMode(k)} style={{
-                        padding:"6px 14px",borderRadius:18,fontSize:13,fontWeight:600,
-                        background:sendMode===k?"var(--accDim)":"var(--bg0)",
-                        color:sendMode===k?"var(--acc)":"var(--dim)",
-                        border:sendMode===k?"2px solid var(--acc)":"1px solid var(--bdr)",
-                      }}>{l}</button>
-                    ))}
-                  </div>
-                  <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
-                    <Btn on={()=>handleSendToNovelAI()} disabled={sending||(!posOut&&!negOut)} bg="var(--acc)" color="#000" border="none">
-                      {sending?"送信中...":"NovelAI へ送信"}
-                    </Btn>
-                    <Btn on={()=>handlePickTarget("pos")} small>🎯 ポジ要素を選択</Btn>
-                    <Btn on={()=>handlePickTarget("neg")} small>🎯 ネガ要素を選択</Btn>
-                    <Btn on={handleResetTargets} small>リセット</Btn>
-                  </div>
-                  <div style={{fontSize:11,color:"var(--dim)"}}>
-                    NovelAI Image Generator (https://novelai.net/image) を開いた状態で送信してください。<br/>
-                    要素が見つからない場合は「🎯」ボタンで対象 textarea を直接選択できます。
-                  </div>
-                </div>
-              )}
-
-              {/* Save section: 完成プロンプトを既存カテゴリに追加 */}
-              <div style={{background:"var(--bg2)",borderRadius:12,padding:16,marginBottom:18,border:"1px solid var(--goldBdr)"}}>
-                <div style={{fontSize:15,fontWeight:600,marginBottom:10,color:"var(--gold)"}}>★ 完成プロンプトをカテゴリに追加</div>
-                <div style={{fontSize:11,color:"var(--dim)",marginBottom:10}}>
-                  保存先のカテゴリを選んでください。プロンプトリストに新規エントリとして追加され、選択タブから再利用できます。
-                </div>
-                <div style={{display:"flex",gap:8,marginBottom:6,flexWrap:"wrap",alignItems:"center"}}>
-                  <span style={{fontSize:13,color:"var(--pos)",fontWeight:600,minWidth:90}}>⊕ ポジ →</span>
-                  <select value={savePosCatId} onChange={e=>setSavePosCatId(e.target.value)} disabled={!posOut} style={{flex:1,minWidth:140,fontSize:14,opacity:posOut?1:.4}}>
-                    {sortedCats.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
-                </div>
-                <div style={{display:"flex",gap:8,marginBottom:6,flexWrap:"wrap",alignItems:"center"}}>
-                  <span style={{fontSize:13,color:"var(--neg)",fontWeight:600,minWidth:90}}>⊖ ネガ →</span>
-                  <select value={saveNegCatId} onChange={e=>setSaveNegCatId(e.target.value)} disabled={!negOut} style={{flex:1,minWidth:140,fontSize:14,opacity:negOut?1:.4}}>
-                    {sortedCats.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
-                </div>
-                <div style={{display:"flex",gap:8,marginTop:8}}>
-                  <input value={saveName} onChange={e=>setSaveName(e.target.value)} placeholder="表示名（空欄で自動命名）"/>
-                  <Btn on={saveOutput} disabled={!posOut&&!negOut} bg="var(--goldBdr)" color="#fff" border="none">追加</Btn>
-                </div>
-              </div>
-            </div>
-          )}
-
-          </div>
-        </div>
-
-        {/* ═══ SELECTION BAR (fixed bottom) ═══ */}
-        <div style={{
-          flexShrink: 0, borderTop: "1px solid var(--bdr)", background: "var(--bg0)",
-          padding: `10px 16px calc(10px + var(--safe-b))`,
-          maxHeight: 200, overflowY: "auto",
-        }}>
-          <div style={{ maxWidth: 960, margin: "0 auto" }}>
-            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:selCount>0?6:0}}>
-              <span style={{fontSize:13,fontWeight:600,color:"var(--dim)"}}>選択中 ({selCount})</span>
-              {selCount>0&&<Btn on={clearAll} small style={{marginLeft:"auto"}}>全解除</Btn>}
-            </div>
-            {selCount>0&&(
-              <>
-                <div style={{display:"flex",flexWrap:"wrap",gap:6,maxHeight:80,overflowY:"auto",marginBottom:6}}>
-                  {sortedSels.map(({id,s,p},i)=>{
-                    const prev=sortedSels[i-1];
-                    const showSep=i>0&&prev&&prev.p.catId!==p.catId;
-                    const cat=sortedCats.find(c=>c.id===p.catId);
-                    return(
-                      <span key={id} style={{display:"inline-flex",alignItems:"center",gap:4}}>
-                        {showSep&&<span style={{width:1,alignSelf:"stretch",background:"var(--bdr)",margin:"0 2px"}}/>}
-                        <div style={{display:"inline-flex",alignItems:"center",gap:4,padding:"5px 8px",borderRadius:6,fontSize:12,
-                          background:s.neg?"var(--negBg)":"var(--posBg)",border:`1px solid ${s.neg?"var(--negBdr)":"var(--posBdr)"}`,color:s.neg?"var(--neg)":"var(--pos)"}}>
-                          <button onClick={()=>setWeight(id,-1)} title="弱める" style={{background:"none",color:"inherit",fontSize:16,padding:"0 3px",lineHeight:1}}>−</button>
-                          <span className="mono" style={{fontSize:11,minWidth:16,textAlign:"center"}}>{s.w>0?"+"+s.w:s.w}</span>
-                          <button onClick={()=>setWeight(id,1)} title="強める" style={{background:"none",color:"inherit",fontSize:16,padding:"0 3px",lineHeight:1}}>+</button>
-                          <button onClick={()=>flipSel(id)} title="ポジ／ネガを切替" style={{background:"none",color:"inherit",fontSize:12,padding:"0 4px",lineHeight:1,fontWeight:700}}>{s.neg?"⊖":"⊕"}</button>
-                          <span style={{margin:"0 2px"}} title={cat?.name||""}>{p.label}</span>
-                          <button onClick={()=>removeSel(id)} title="削除" style={{background:"none",color:"inherit",fontSize:16,padding:"0 3px",opacity:.5,lineHeight:1}}>×</button>
-                        </div>
-                      </span>
-                    );
-                  })}
-                </div>
-                <div className="mono" style={{padding:"5px 8px",borderRadius:6,background:"var(--bg2)",fontSize:11,color:"var(--dim)",wordBreak:"break-all",lineHeight:1.5}}>
-                  {posOut&&<div><span style={{color:"var(--pos)",fontWeight:700}}>P:</span> {posOut}</div>}
-                  {negOut&&<div><span style={{color:"var(--neg)",fontWeight:700}}>N:</span> {negOut}</div>}
-                </div>
-              </>
+            {tab === "select" && (
+              <SelectTab
+                sortedCats={sortedCats}
+                prompts={prompts}
+                sels={sels}
+                activeCat={activeCat}
+                setActiveCat={setActiveCat}
+                search={search}
+                setSearch={setSearch}
+                tagFilter={tagFilter}
+                setTagFilter={setTagFilter}
+                addMode={addMode}
+                setAddMode={setAddMode}
+                activeCatObj={activeCatObj}
+                filteredSelect={filteredSelect}
+                toggleSel={toggleSel}
+                copyText={copyText}
+              />
             )}
+
+            {tab === "manage" && (
+              <ManageTab
+                sortedCats={sortedCats}
+                manageCat={manageCat}
+                setManageCat={setManageCat}
+                manageCatObj={manageCatObj}
+                prompts={prompts}
+                filteredManage={filteredManage}
+                search={search}
+                setSearch={setSearch}
+                newPrompt={newPrompt}
+                setNewPrompt={setNewPrompt}
+                newLabel={newLabel}
+                setNewLabel={setNewLabel}
+                newPromptTagIds={newPromptTagIds}
+                setNewPromptTagIds={setNewPromptTagIds}
+                newPromptTagInput={newPromptTagInput}
+                setNewPromptTagInput={setNewPromptTagInput}
+                promptRef={promptRef}
+                handleEmphasis={handleEmphasis}
+                stripOuter={stripOuter}
+                addPromptItem={addPromptItem}
+                quickAddTagForNew={quickAddTagForNew}
+                editId={editId}
+                setEditId={setEditId}
+                editPrompt={editPrompt}
+                setEditPrompt={setEditPrompt}
+                editLabel={editLabel}
+                setEditLabel={setEditLabel}
+                editTagIds={editTagIds}
+                setEditTagIds={setEditTagIds}
+                editTagInput={editTagInput}
+                setEditTagInput={setEditTagInput}
+                startEdit={startEdit}
+                saveEdit={saveEdit}
+                deletePrompt={deletePrompt}
+                movePromptItem={movePromptItem}
+                copyText={copyText}
+                quickAddTagForEdit={quickAddTagForEdit}
+                newCatName={newCatName}
+                setNewCatName={setNewCatName}
+                addCategory={addCategory}
+                renameCatId={renameCatId}
+                setRenameCatId={setRenameCatId}
+                renameCatName={renameCatName}
+                setRenameCatName={setRenameCatName}
+                renameCategory={renameCategory}
+                deleteCategory={deleteCategory}
+                setCatColor={setCatColor}
+                moveCat={moveCat}
+                newTagName={newTagName}
+                setNewTagName={setNewTagName}
+                addTag={addTag}
+                renameTagId={renameTagId}
+                setRenameTagId={setRenameTagId}
+                renameTagName={renameTagName}
+                setRenameTagName={setRenameTagName}
+                renameTag={renameTag}
+                deleteTag={deleteTag}
+                tagCount={tagCount}
+                exportList={exportList}
+                importList={importList}
+                importListMerge={importListMerge}
+              />
+            )}
+
+            {tab === "output" && (
+              <OutputTab
+                posOut={posOut}
+                negOut={negOut}
+                copyText={copyText}
+                isExtension={isExtension}
+                sendMode={sendMode}
+                setSendMode={setSendMode}
+                sending={sending}
+                handleSendToNovelAI={handleSendToNovelAI}
+                handlePickTarget={handlePickTarget}
+                handleResetTargets={handleResetTargets}
+                sortedCats={sortedCats}
+                saveName={saveName}
+                setSaveName={setSaveName}
+                savePosCatId={savePosCatId}
+                setSavePosCatId={setSavePosCatId}
+                saveNegCatId={saveNegCatId}
+                setSaveNegCatId={setSaveNegCatId}
+                saveOutput={saveOutput}
+              />
+            )}
+
           </div>
         </div>
+
+        <SelectionBar
+          selCount={selCount}
+          sortedSels={sortedSels}
+          sortedCats={sortedCats}
+          posOut={posOut}
+          negOut={negOut}
+          setWeight={setWeight}
+          flipSel={flipSel}
+          removeSel={removeSel}
+          clearAll={clearAll}
+        />
       </div>
 
-      {/* TOAST */}
-      {toast&&(
-        <div style={{position:"fixed",top:60,left:"50%",transform:"translateX(-50%)",zIndex:999,
-          padding:"12px 28px",borderRadius:10,background:"var(--acc)",color:"#000",
-          fontSize:15,fontWeight:600,boxShadow:"0 4px 24px rgba(0,0,0,.5)",animation:"fi .2s ease-out"}}>{toast}</div>
-      )}
+      <Toast message={toast} />
     </>
   );
 }
