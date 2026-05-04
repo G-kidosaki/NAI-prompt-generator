@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import storage from "./storage";
 import { isExtension, sendToNovelAI, pickTarget, resetTargets } from "./extension/bridge";
-import { sortByOrder, wrap } from "./lib/utils";
+import { sortByOrder } from "./lib/utils";
+import { serialize } from "./lib/serializer";
 import { migrateOldSavedToPrompts } from "./lib/migrate";
 import {
   SK_SAVED, SK_SAVED_OLD,
@@ -50,6 +51,8 @@ export default function App() {
   /* ── settings state (Zustand) ── */
   const sendMode = useSettingsStore((s) => s.sendMode);
   const setSendMode = useSettingsStore((s) => s.setSendMode);
+  const model = useSettingsStore((s) => s.model);
+  const setModel = useSettingsStore((s) => s.setModel);
   const migratedSaved = useSettingsStore((s) => s.migratedSaved);
   const setMigratedSaved = useSettingsStore((s) => s.setMigratedSaved);
 
@@ -219,12 +222,11 @@ export default function App() {
       .filter(({ p }) => p)
       .sort((a, b) => (catOrder.get(a.p.catId) ?? 999) - (catOrder.get(b.p.catId) ?? 999));
   }, [sels, prompts, sortedCats]);
-  const buildOut = (neg) => sortedSels
-    .filter(({ s }) => !!s.neg === neg)
-    .map(({ p, s }) => wrap(p.prompt, s.w))
-    .join(", ");
-  const posOut = buildOut(false);
-  const negOut = buildOut(true);
+
+  const { pos: posOut, neg: negOut } = useMemo(
+    () => serialize({ cats, prompts, sels }, model),
+    [cats, prompts, sels, model]
+  );
   const selCount = Object.keys(sels).length;
 
   /* ── save completed prompts as new entries in chosen prompt categories ── */
@@ -431,7 +433,7 @@ export default function App() {
 
       <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
 
-        <Header tab={tab} setTab={setTab} setSearch={setSearch} />
+        <Header tab={tab} setTab={setTab} setSearch={setSearch} model={model} setModel={setModel} />
 
         {/* SCROLLABLE CONTENT */}
         <div style={{ flex: 1, overflow: "auto", WebkitOverflowScrolling: "touch", paddingBottom: barPad }}>
