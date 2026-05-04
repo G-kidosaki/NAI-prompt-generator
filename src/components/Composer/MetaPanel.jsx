@@ -19,11 +19,14 @@ const SAMPLERS = [
 ];
 
 export default function MetaPanel() {
-  const meta = useCompStore((s) => s.comp.meta);
-  const characters = useCompStore((s) => s.comp.characters.filter((c) => c.enabled));
-  const refImages = useCompStore((s) => s.comp.meta.refImages || []);
-  const setComp = useCompStore((s) => s.setComp);
+  // 注意: selector は安定した参照を返すこと。`.filter(...)` や `|| []` は
+  // 毎回新しい配列を生成するため React の useSyncExternalStore が例外を投げる。
+  // ベースの参照を取り出してから派生値を計算する。
   const comp = useCompStore((s) => s.comp);
+  const setComp = useCompStore((s) => s.setComp);
+  const meta = comp.meta;
+  const characters = comp.characters.filter((c) => c.enabled);
+  const refImages = meta.refImages || [];
 
   const updateMeta = (patch) => setComp({
     ...comp, meta: { ...comp.meta, ...patch }, updatedAt: Date.now(),
