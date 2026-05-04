@@ -13,11 +13,10 @@ import { useLibraryStore, useSettingsStore, useCompStore } from "./state/store";
 import GlobalStyles from "./components/Common/GlobalStyles";
 import Header from "./components/Common/Header";
 import Toast from "./components/Common/Toast";
-import SelectTab from "./components/Library/SelectTab";
-import ManageTab from "./components/Library/ManageTab";
+import LibraryRoot from "./components/Library/LibraryRoot";
 import OutputTab from "./components/Output/OutputTab";
 import SelectionBar from "./components/Output/SelectionBar";
-import ComposerRoot from "./components/Composer/ComposerRoot";
+import ComposeTab from "./components/Composer/ComposeTab";
 
 export default function App() {
   /* ── library state (Zustand) ── */
@@ -93,12 +92,20 @@ export default function App() {
   }, [model, comp.model, setCompModel]);
 
   const setModel = (next) => {
+    if (next === model) return;
     setModelSetting(next);
     setCompModel(next);
+    const desc = next === "v3"
+      ? "V3: フラット選択モード"
+      : next === "v4"
+      ? "V4: 複数キャラ + アクション主体 + 数値強調"
+      : "V4.5: V4 ＋ T5 自然文プロンプト";
+    flash(`${desc} に切り替えました`);
   };
 
   /* ── ui state (local) ── */
-  const [tab, setTab] = useState("select");
+  const [tab, setTab] = useState("compose");
+  const [librarySubTab, setLibrarySubTab] = useState("browse"); // "browse" | "manage"
   const [activeCat, setActiveCat] = useState("char");
   const [search, setSearch] = useState("");
   const [tagFilter, setTagFilter] = useState([]);
@@ -486,7 +493,7 @@ export default function App() {
   const tagCount = (catId, tagId) => prompts.filter(p => p.catId === catId && (p.tagIds || []).includes(tagId)).length;
 
   /* ── bottom bar height calc ── */
-  const barPad = selCount > 0 ? 200 : 80;
+  const barPad = useV4 ? 16 : (selCount > 0 ? 200 : 80);
 
   /* ════════ RENDER ════════ */
   return (
@@ -521,93 +528,52 @@ export default function App() {
         <div style={{ flex: 1, overflow: "auto", WebkitOverflowScrolling: "touch", paddingBottom: barPad }}>
           <div style={{ maxWidth: 960, margin: "0 auto", padding: "14px 16px" }}>
 
-            {tab === "select" && (
-              <SelectTab
-                sortedCats={sortedCats}
-                prompts={prompts}
-                sels={sels}
-                activeCat={activeCat}
-                setActiveCat={setActiveCat}
-                search={search}
-                setSearch={setSearch}
-                tagFilter={tagFilter}
-                setTagFilter={setTagFilter}
-                addMode={addMode}
-                setAddMode={setAddMode}
-                activeCatObj={activeCatObj}
-                filteredSelect={filteredSelect}
-                toggleSel={toggleSel}
-                copyText={copyText}
+            {tab === "library" && (
+              <LibraryRoot
+                subTab={librarySubTab}
+                setSubTab={setLibrarySubTab}
+                selectProps={{
+                  sortedCats, prompts, sels,
+                  activeCat, setActiveCat,
+                  search, setSearch,
+                  tagFilter, setTagFilter,
+                  addMode, setAddMode,
+                  activeCatObj, filteredSelect,
+                  toggleSel, copyText,
+                  useV4, compActiveTarget,
+                }}
+                manageProps={{
+                  sortedCats,
+                  manageCat, setManageCat, manageCatObj,
+                  prompts, filteredManage, search, setSearch,
+                  newPrompt, setNewPrompt, newLabel, setNewLabel,
+                  newPromptTagIds, setNewPromptTagIds,
+                  newPromptTagInput, setNewPromptTagInput,
+                  promptRef, handleEmphasis, stripOuter,
+                  addPromptItem, quickAddTagForNew,
+                  editId, setEditId, editPrompt, setEditPrompt,
+                  editLabel, setEditLabel, editTagIds, setEditTagIds,
+                  editTagInput, setEditTagInput,
+                  startEdit, saveEdit, deletePrompt, movePromptItem,
+                  copyText, quickAddTagForEdit,
+                  newCatName, setNewCatName, addCategory,
+                  renameCatId, setRenameCatId,
+                  renameCatName, setRenameCatName,
+                  renameCategory, deleteCategory, setCatColor, moveCat,
+                  newTagName, setNewTagName, addTag,
+                  renameTagId, setRenameTagId,
+                  renameTagName, setRenameTagName,
+                  renameTag, deleteTag, tagCount,
+                  exportList, importList, importListMerge,
+                }}
               />
             )}
 
             {tab === "compose" && (
-              <ComposerRoot />
-            )}
-
-            {tab === "manage" && (
-              <ManageTab
-                sortedCats={sortedCats}
-                manageCat={manageCat}
-                setManageCat={setManageCat}
-                manageCatObj={manageCatObj}
-                prompts={prompts}
-                filteredManage={filteredManage}
-                search={search}
-                setSearch={setSearch}
-                newPrompt={newPrompt}
-                setNewPrompt={setNewPrompt}
-                newLabel={newLabel}
-                setNewLabel={setNewLabel}
-                newPromptTagIds={newPromptTagIds}
-                setNewPromptTagIds={setNewPromptTagIds}
-                newPromptTagInput={newPromptTagInput}
-                setNewPromptTagInput={setNewPromptTagInput}
-                promptRef={promptRef}
-                handleEmphasis={handleEmphasis}
-                stripOuter={stripOuter}
-                addPromptItem={addPromptItem}
-                quickAddTagForNew={quickAddTagForNew}
-                editId={editId}
-                setEditId={setEditId}
-                editPrompt={editPrompt}
-                setEditPrompt={setEditPrompt}
-                editLabel={editLabel}
-                setEditLabel={setEditLabel}
-                editTagIds={editTagIds}
-                setEditTagIds={setEditTagIds}
-                editTagInput={editTagInput}
-                setEditTagInput={setEditTagInput}
-                startEdit={startEdit}
-                saveEdit={saveEdit}
-                deletePrompt={deletePrompt}
-                movePromptItem={movePromptItem}
-                copyText={copyText}
-                quickAddTagForEdit={quickAddTagForEdit}
-                newCatName={newCatName}
-                setNewCatName={setNewCatName}
-                addCategory={addCategory}
-                renameCatId={renameCatId}
-                setRenameCatId={setRenameCatId}
-                renameCatName={renameCatName}
-                setRenameCatName={setRenameCatName}
-                renameCategory={renameCategory}
-                deleteCategory={deleteCategory}
-                setCatColor={setCatColor}
-                moveCat={moveCat}
-                newTagName={newTagName}
-                setNewTagName={setNewTagName}
-                addTag={addTag}
-                renameTagId={renameTagId}
-                setRenameTagId={setRenameTagId}
-                renameTagName={renameTagName}
-                setRenameTagName={setRenameTagName}
-                renameTag={renameTag}
-                deleteTag={deleteTag}
-                tagCount={tagCount}
-                exportList={exportList}
-                importList={importList}
-                importListMerge={importListMerge}
+              <ComposeTab
+                model={model}
+                setModel={setModel}
+                selCount={selCount}
               />
             )}
 
@@ -640,18 +606,20 @@ export default function App() {
           </div>
         </div>
 
-        <SelectionBar
-          selCount={selCount}
-          sortedSels={sortedSels}
-          sortedCats={sortedCats}
-          posOut={posOut}
-          negOut={negOut}
-          setWeight={setWeight}
-          flipSel={flipSel}
-          removeSel={removeSel}
-          clearAll={clearAll}
-          useV4={useV4}
-        />
+        {!useV4 && (
+          <SelectionBar
+            selCount={selCount}
+            sortedSels={sortedSels}
+            sortedCats={sortedCats}
+            posOut={posOut}
+            negOut={negOut}
+            setWeight={setWeight}
+            flipSel={flipSel}
+            removeSel={removeSel}
+            clearAll={clearAll}
+            useV4={false}
+          />
+        )}
       </div>
 
       <Toast message={toast} />
