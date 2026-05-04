@@ -6,6 +6,7 @@ import DatasetSelector from "./DatasetSelector";
 import T5Editor from "./T5Editor";
 import MetaPanel from "./MetaPanel";
 import SavedPanel from "./SavedPanel";
+import ImportPanel from "./ImportPanel";
 import Btn from "../Common/Btn";
 
 const useTemporal = (selector) => useZustandStore(useCompStore.temporal, selector);
@@ -70,6 +71,8 @@ export default function ComposerRoot() {
       <T5Editor />
 
       <SavedPanel />
+
+      <ImportPanel />
 
       <CharacterPanel
         title="📦 ベース（全体）"

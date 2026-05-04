@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { serializeV3 } from "../src/lib/serializer/v3";
 import { serializeV4 } from "../src/lib/serializer/v4";
+import { parseV4, parseTag } from "../src/lib/parser/v4";
 import { serializeRandomizer, parseRandomizer } from "../src/lib/randomizer";
 import { v3WeightToNumeric, numericToV3Weight } from "../src/lib/weight";
 import type { Composition, Library, Tag } from "../src/lib/types";
@@ -173,6 +174,91 @@ describe("randomizer", () => {
   });
   it("rejects non-randomizer text", () => {
     expect(parseRandomizer("plain text")).toBeNull();
+  });
+});
+
+describe("parseV4 (single tag)", () => {
+  it("parses plain text", () => {
+    const t = parseTag("1girl", false);
+    expect(t.text).toBe("1girl");
+    expect(t.weight).toEqual({ kind: "v3", w: 0 });
+    expect(t.role).toBe("none");
+  });
+  it("parses {{tag}} as v3 weight +2", () => {
+    const t = parseTag("{{smile}}", false);
+    expect(t.text).toBe("smile");
+    expect(t.weight).toEqual({ kind: "v3", w: 2 });
+  });
+  it("parses [tag] as v3 weight -1", () => {
+    const t = parseTag("[lowres]", true);
+    expect(t.text).toBe("lowres");
+    expect(t.weight).toEqual({ kind: "v3", w: -1 });
+  });
+  it("parses 1.3::tag:: as numeric weight", () => {
+    const t = parseTag("1.3::blue eyes::", false);
+    expect(t.text).toBe("blue eyes");
+    expect(t.weight).toEqual({ kind: "numeric", n: 1.3 });
+  });
+  it("parses negative numeric weight", () => {
+    const t = parseTag("-1::closed eyes::", false);
+    expect(t.text).toBe("closed eyes");
+    expect(t.weight).toEqual({ kind: "numeric", n: -1 });
+  });
+  it("parses source#kissing", () => {
+    const t = parseTag("source#kissing", false);
+    expect(t.role).toBe("source");
+    expect(t.text).toBe("kissing");
+  });
+  it("parses target#1.3::tag::", () => {
+    const t = parseTag("target#1.3::breasts::", false);
+    expect(t.role).toBe("target");
+    expect(t.text).toBe("breasts");
+    expect(t.weight).toEqual({ kind: "numeric", n: 1.3 });
+  });
+  it("parses ||a|b|| randomizer", () => {
+    const t = parseTag("||red hair|blue hair||", false);
+    expect(t.random?.variants).toEqual(["red hair", "blue hair"]);
+  });
+});
+
+describe("parseV4 (sections + roundtrip)", () => {
+  it("parses base + 2 characters", () => {
+    const c = parseV4("2girls || marisa || reimu", "lowres || blurry || ");
+    expect(c.base.positives.map((t) => t.text)).toEqual(["2girls"]);
+    expect(c.characters).toHaveLength(2);
+    expect(c.characters[0].positives.map((t) => t.text)).toEqual(["marisa"]);
+    expect(c.characters[1].positives.map((t) => t.text)).toEqual(["reimu"]);
+    expect(c.characters[0].negatives.map((t) => t.text)).toEqual(["blurry"]);
+  });
+
+  it("roundtrips serializeV4 → parseV4 → serializeV4 byte-for-byte", () => {
+    const before = serializeV4({
+      id: "c", name: "", model: "v4",
+      base: {
+        positives: [
+          { id: "1", text: "2girls", weight: { kind: "v3", w: 0 }, role: "none", neg: false },
+          { id: "2", text: "outdoors", weight: { kind: "numeric", n: 1.2 }, role: "none", neg: false },
+        ],
+        negatives: [{ id: "3", text: "lowres", weight: { kind: "v3", w: 1 }, role: "none", neg: true }],
+      },
+      characters: [
+        {
+          id: "a", enabled: true,
+          positives: [{ id: "4", text: "kissing", weight: { kind: "v3", w: 0 }, role: "source", neg: false }],
+          negatives: [],
+        },
+        {
+          id: "b", enabled: true,
+          positives: [{ id: "5", text: "kissing", weight: { kind: "v3", w: 0 }, role: "target", neg: false }],
+          negatives: [],
+        },
+      ],
+      meta: {}, updatedAt: 0, schemaVersion: 4,
+    });
+    const c2 = parseV4(before.pos, before.neg, "v4");
+    const after = serializeV4(c2);
+    expect(after.pos).toBe(before.pos);
+    expect(after.neg).toBe(before.neg);
   });
 });
 
