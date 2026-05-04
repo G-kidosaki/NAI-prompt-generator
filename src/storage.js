@@ -88,4 +88,22 @@ const localStorageAdapter = {
 
 const storage = cs ? chromeStorage : localStorageAdapter;
 
+/**
+ * Zustand persist 用のアダプタ。
+ * StateStorage interface に揃えて { getItem, setItem, removeItem } を返す。
+ * 内部で上記の async storage（chrome.storage / localStorage）に委譲。
+ */
+export const zustandAdapter = {
+  async getItem(name) {
+    const r = await storage.get(name);
+    return r?.value ?? null;
+  },
+  async setItem(name, value) {
+    await storage.set(name, value);
+  },
+  async removeItem(name) {
+    await storage.delete(name);
+  },
+};
+
 export default storage;
