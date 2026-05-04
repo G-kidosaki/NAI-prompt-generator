@@ -262,6 +262,8 @@ export default function App() {
   );
   const posOut = serializedOut.pos;
   const negOut = serializedOut.neg;
+  const t5Out = serializedOut.t5 || "";
+  const perCharacter = serializedOut.perCharacter || [];
   const selCount = useV4
     ? (comp.base.positives.length + comp.base.negatives.length +
        comp.characters.reduce((acc, c) => acc + c.positives.length + c.negatives.length, 0))
@@ -571,6 +573,9 @@ export default function App() {
               <OutputTab
                 posOut={posOut}
                 negOut={negOut}
+                t5Out={t5Out}
+                perCharacter={perCharacter}
+                model={model}
                 copyText={copyText}
                 isExtension={isExtension}
                 sendMode={sendMode}

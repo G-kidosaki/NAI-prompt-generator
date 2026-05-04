@@ -2,6 +2,7 @@ import { useCompStore } from "../../state/store";
 import { makeTag } from "../../lib/composition";
 import CharacterPanel from "./CharacterPanel";
 import DatasetSelector from "./DatasetSelector";
+import T5Editor from "./T5Editor";
 import Btn from "../Common/Btn";
 
 export default function ComposerRoot() {
@@ -48,6 +49,8 @@ export default function ComposerRoot() {
       </div>
 
       <DatasetSelector basePositives={comp.base.positives} onSet={onSetDataset} />
+
+      <T5Editor />
 
       <CharacterPanel
         title="📦 ベース（全体）"
