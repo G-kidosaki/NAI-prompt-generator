@@ -1,9 +1,14 @@
+import { useStore as useZustandStore } from "zustand";
 import { useCompStore } from "../../state/store";
 import { makeTag } from "../../lib/composition";
 import CharacterPanel from "./CharacterPanel";
 import DatasetSelector from "./DatasetSelector";
 import T5Editor from "./T5Editor";
+import MetaPanel from "./MetaPanel";
+import SavedPanel from "./SavedPanel";
 import Btn from "../Common/Btn";
+
+const useTemporal = (selector) => useZustandStore(useCompStore.temporal, selector);
 
 export default function ComposerRoot() {
   const comp = useCompStore((s) => s.comp);
@@ -17,6 +22,13 @@ export default function ComposerRoot() {
   const removeCharacter = useCompStore((s) => s.removeCharacter);
   const updateCharacter = useCompStore((s) => s.updateCharacter);
   const moveCharacter = useCompStore((s) => s.moveCharacter);
+  const resetComp = useCompStore((s) => s.resetComp);
+
+  // zundo の API: temporal.getState() で { undo, redo, pastStates, futureStates }
+  const undo = useTemporal((t) => t.undo);
+  const redo = useTemporal((t) => t.redo);
+  const pastCount = useTemporal((t) => t.pastStates.length);
+  const futureCount = useTemporal((t) => t.futureStates.length);
 
   const handleAdd = (target, text) => {
     addTag(target, makeTag(text, { neg: target.neg }));
@@ -43,14 +55,21 @@ export default function ComposerRoot() {
           model: <strong style={{ color: "var(--acc)" }}>{comp.model}</strong> ／
           キャラクター: <strong>{comp.characters.length}</strong>
         </span>
-        <Btn on={() => addCharacter()} bg="var(--acc)" color="#000" border="none" small style={{ marginLeft: "auto" }}>
+        <Btn on={() => undo()} disabled={pastCount === 0} small style={{ marginLeft: "auto" }} title="Undo (履歴を1つ戻す)">↶ Undo</Btn>
+        <Btn on={() => redo()} disabled={futureCount === 0} small title="Redo (やり直し)">↷ Redo</Btn>
+        <Btn on={() => addCharacter()} bg="var(--acc)" color="#000" border="none" small>
           ＋ キャラクター追加
         </Btn>
+        <Btn on={() => { if (confirm("現在の Composition をリセットしますか？")) resetComp(comp.model); }} bg="var(--negBg)" color="var(--neg)" border="1px solid var(--negBdr)" small>🗑 リセット</Btn>
       </div>
 
       <DatasetSelector basePositives={comp.base.positives} onSet={onSetDataset} />
 
+      <MetaPanel />
+
       <T5Editor />
+
+      <SavedPanel />
 
       <CharacterPanel
         title="📦 ベース（全体）"

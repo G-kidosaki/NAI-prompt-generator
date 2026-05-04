@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
+import LZString from "lz-string";
 import storage from "./storage";
 import { isExtension, sendToNovelAI, pickTarget, resetTargets } from "./extension/bridge";
 import { sortByOrder } from "./lib/utils";
@@ -63,6 +64,27 @@ export default function App() {
   const compActiveTarget = useCompStore((s) => s.activeTarget);
   const setCompModel = useCompStore((s) => s.setModel);
   const compAddTag = useCompStore((s) => s.addTag);
+  const setComp = useCompStore((s) => s.setComp);
+
+  /* ── #comp= の URL 共有を取り込み ── */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const m = window.location.hash.match(/#comp=([^&]+)/);
+    if (!m) return;
+    try {
+      const json = LZString.decompressFromEncodedURIComponent(m[1]);
+      if (!json) return;
+      const c = JSON.parse(json);
+      if (c?.schemaVersion === 4 && Array.isArray(c.characters)) {
+        if (confirm("URL に Composition データが含まれています。読み込みますか？（現在の編集内容は失われます）")) {
+          setComp(c);
+          setTab("compose");
+        }
+        // hash を消して再読込時の二重反映を防ぐ
+        history.replaceState(null, "", window.location.pathname + window.location.search);
+      }
+    } catch {}
+  }, [setComp]);
 
   /* settings.model と comp.model を同期する。Header から model を切替えると
      settings 側だけ更新されるので、ここで comp に反映。 */

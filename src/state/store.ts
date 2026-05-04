@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import { temporal } from "zundo";
 import storage, { zustandAdapter } from "../storage";
 import {
   INIT_CATS, INIT_PROMPTS,
@@ -309,6 +310,8 @@ interface CompositionState {
   comp: Composition;
   /** Composer UI で「いまアクティブな入力先」を覚えるためのターゲット */
   activeTarget: TagTarget;
+  /** 保存済み Composition のリスト（明示的に「保存」されたものだけ） */
+  saved: Composition[];
 
   setComp: (c: Composition) => void;
   resetComp: (model?: ModelId) => void;
@@ -326,13 +329,19 @@ interface CompositionState {
   removeCharacter: (charId: string) => void;
   updateCharacter: (charId: string, patch: Partial<CharacterSlot>) => void;
   moveCharacter: (charId: string, dir: -1 | 1) => void;
+
+  /** 現在の comp を saved に追加（id は新規発番） */
+  saveCurrent: (name: string) => void;
+  loadSaved: (id: string) => void;
+  deleteSaved: (id: string) => void;
 }
 
 export const useCompStore = create<CompositionState>()(
   persist(
-    (set) => ({
+    temporal((set) => ({
       comp: emptyComposition("v4"),
       activeTarget: { kind: "base", neg: false },
+      saved: [],
 
       setComp: (comp) => set({ comp }),
       resetComp: (model) => set({ comp: emptyComposition(model ?? "v4") }),
@@ -357,11 +366,37 @@ export const useCompStore = create<CompositionState>()(
       }),
       updateCharacter: (charId, patch) => set((s) => ({ comp: updateCharacterPure(s.comp, charId, patch) })),
       moveCharacter: (charId, dir) => set((s) => ({ comp: moveCharacterPure(s.comp, charId, dir) })),
+
+      saveCurrent: (name) => set((s) => {
+        const snapshot: Composition = {
+          ...s.comp,
+          id: uid(),
+          name: name.trim() || `Composition ${s.saved.length + 1}`,
+          updatedAt: Date.now(),
+        };
+        return { saved: [...s.saved, snapshot] };
+      }),
+      loadSaved: (id) => set((s) => {
+        const target = s.saved.find((c) => c.id === id);
+        if (!target) return s;
+        return { comp: { ...target, id: uid(), updatedAt: Date.now() } };
+      }),
+      deleteSaved: (id) => set((s) => ({ saved: s.saved.filter((c) => c.id !== id) })),
+    }), {
+      // zundo: undo/redo 対象は comp フィールドのみ。activeTarget は履歴に
+      // 入れず、頻繁な切替で履歴が荒れないようにする。
+      partialize: (s) => ({ comp: s.comp }),
+      limit: 100,
+      equality: (a, b) => a.comp === b.comp,
     }),
     {
       name: "nai-pg-comp-v4",
       storage: createJSONStorage(() => zustandAdapter),
-      partialize: (state) => ({ comp: state.comp, activeTarget: state.activeTarget }),
+      partialize: (state) => ({
+        comp: state.comp,
+        activeTarget: state.activeTarget,
+        saved: state.saved,
+      }),
       merge: (persistedState, currentState) => {
         const ps = (persistedState as any) ?? {};
         const raw = ps.state ?? ps;
@@ -371,6 +406,7 @@ export const useCompStore = create<CompositionState>()(
           ...currentState,
           comp: raw.comp,
           activeTarget: raw.activeTarget ?? currentState.activeTarget,
+          saved: Array.isArray(raw.saved) ? raw.saved.filter((c: any) => c?.schemaVersion === 4) : [],
         };
       },
     }
